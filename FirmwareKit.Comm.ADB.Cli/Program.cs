@@ -1112,7 +1112,19 @@ internal static class Program
                         ? "reverse:killforward-all"
                         : $"reverse:killforward:{opts.Remove}";
                 var services = new AdbDeviceServices(connection);
-                Console.Write(services.RunService(service));
+                string response = services.RunService(service);
+
+                if (opts.List)
+                {
+                    // list-forward returns ADB's length-prefixed format:
+                    //   <4 hex chars length><serial> <local> <remote>\n
+                    // terminated by "0000" (length 0). The official `adb reverse
+                    // --list` prints each entry on its own line and nothing for an
+                    // empty list.
+                    PrintForwardList(response);
+                }
+                // killforward(-all) returns "OKAY" on success, which the official
+                // adb prints as nothing (no output on success).
                 return 0;
             }
 
@@ -1127,6 +1139,7 @@ internal static class Program
                 // `adb reverse` 一致，打开服务后立即关闭。直写模式下转发只在本连接
                 // 存续期间有效（每次 CLI 调用各自打开一条传输）。</para>
                 using var stream = connection.OpenStream($"reverse:forward:{opts.Remote}:{opts.Local}");
+                Console.WriteLine(opts.Local);
                 return 0;
             }
 
@@ -1143,6 +1156,47 @@ internal static class Program
         finally
         {
             device?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Parses and prints the ADB forward-list response (used by both host:list-forward
+    /// and reverse:list-forward). The wire format is length-prefixed entries:
+    /// <c>&lt;4 hex chars length&gt;&lt;serial&gt; &lt;local&gt; &lt;remote&gt;\n</c>,
+    /// terminated by <c>0000</c>. The official adb prints each entry on its own line.
+    /// <para>解析并打印 ADB forward-list 响应（host:list-forward 与 reverse:list-forward
+    /// 通用）。线上格式为长度前缀条目：<c>&lt;4 个十六进制字符长度&gt;&lt;serial&gt;
+    /// &lt;local&gt; &lt;remote&gt;\n</c>，以 <c>0000</c> 结束。官方 adb 每行打印一条。</para>
+    /// </summary>
+    private static void PrintForwardList(string response)
+    {
+        if (string.IsNullOrEmpty(response))
+        {
+            return;
+        }
+
+        int i = 0;
+        while (i + 4 <= response.Length)
+        {
+            string lengthHex = response.Substring(i, 4);
+            i += 4;
+            if (!int.TryParse(lengthHex, System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out int length) || length == 0)
+            {
+                break; // "0000" terminator or malformed
+            }
+
+            if (i + length > response.Length)
+            {
+                break;
+            }
+
+            string entry = response.Substring(i, length).TrimEnd('\n', '\r');
+            i += length;
+            if (entry.Length > 0)
+            {
+                Console.WriteLine(entry);
+            }
         }
     }
 

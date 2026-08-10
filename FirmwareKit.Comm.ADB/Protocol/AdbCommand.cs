@@ -1,50 +1,23 @@
 namespace FirmwareKit.Comm.ADB.Protocol;
 
 /// <summary>
-/// ADB wire commands, byte-swapped AOSP identifiers.
-/// <para>ADB 线上的命令标识（AOSP 字节序反转后的值）。</para>
+/// ADB wire commands (AOSP identifiers, byte-swapped for little-endian wire order).
+/// <para>ADB 线上命令标识（AOSP 标识符，按小端序字节反转）。</para>
 /// </summary>
 public enum AdbCommand : uint
 {
-    /// <summary>
-    /// Authentication message (TOKEN / SIGNATURE / RSAPUBLICKEY).
-    /// <para>认证消息（TOKEN / SIGNATURE / RSAPUBLICKEY）。</para>
-    /// </summary>
+    /// <summary>Authentication (TOKEN / SIGNATURE / RSAPUBLICKEY). 认证消息。</summary>
     Auth = 0x48545541,
-
-    /// <summary>
-    /// Close stream.
-    /// <para>关闭流。</para>
-    /// </summary>
+    /// <summary>Close stream. 关闭流。</summary>
     Clse = 0x45534C43,
-
-    /// <summary>
-    /// Connect (version / maxdata handshake).
-    /// <para>连接握手（版本 / 最大数据长度）。</para>
-    /// </summary>
+    /// <summary>Connect handshake (version / maxdata). 连接握手。</summary>
     Cnxn = 0x4E584E43,
-
-    /// <summary>
-    /// Acknowledge / ready.
-    /// <para>确认 / 就绪。</para>
-    /// </summary>
+    /// <summary>Acknowledge / ready. 确认 / 就绪。</summary>
     Okay = 0x59414B4F,
-
-    /// <summary>
-    /// Open a new stream to a service.
-    /// <para>打开到某服务的新流。</para>
-    /// </summary>
+    /// <summary>Open a stream to a service. 打开到服务的流。</summary>
     Open = 0x4E45504F,
-
-    /// <summary>
-    /// Sync (file transfer) stream.
-    /// <para>同步（文件传输）流。</para>
-    /// </summary>
+    /// <summary>Sync (file transfer) stream. 同步（文件传输）流。</summary>
     Sync = 0x434E5953,
-
-    /// <summary>
-    /// Write payload to a stream.
-    /// <para>向流写入数据。</para>
-    /// </summary>
+    /// <summary>Write payload to a stream. 向流写入负载。</summary>
     Wrte = 0x45545257,
 }

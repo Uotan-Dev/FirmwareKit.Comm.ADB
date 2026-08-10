@@ -287,6 +287,158 @@ public class CliParserLogTests
         Assert.Equal("127.0.0.1:5555", connect.Endpoint);
     }
 
+    // ---- additional edge cases for coverage -------------------------------
+
+    [Theory]
+    [InlineData("-d", true, false)]
+    [InlineData("-e", false, true)]
+    public void Parse_GlobalTransportFlags(string flag, bool usb, bool tcp)
+    {
+        ParsedCommand? parsed = CliParser.Parse(Tokenize($"{flag} shell getprop"));
+
+        Assert.NotNull(parsed);
+        Assert.Equal(usb, parsed!.Globals.UseUsb);
+        Assert.Equal(tcp, parsed.Globals.UseTcp);
+    }
+
+    [Fact]
+    public void Parse_TcpIp_Port()
+    {
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("tcpip 5555"));
+
+        Assert.NotNull(parsed);
+        var tcpip = Assert.IsType<TcpIpVerb>(parsed!.VerbOptions);
+        Assert.Equal("5555", tcpip.ListenPort);
+    }
+
+    [Fact]
+    public void Parse_Uninstall_KeepData()
+    {
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("uninstall -k com.example.app"));
+
+        Assert.NotNull(parsed);
+        var uninstall = Assert.IsType<UninstallVerb>(parsed!.VerbOptions);
+        Assert.True(uninstall.KeepData);
+        Assert.Equal("com.example.app", uninstall.Package);
+    }
+
+    [Fact]
+    public void Parse_Reboot_Recovery()
+    {
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("reboot recovery"));
+
+        Assert.NotNull(parsed);
+        Assert.Equal("recovery", Assert.IsType<RebootVerb>(parsed!.VerbOptions).Mode);
+    }
+
+    [Fact]
+    public void Parse_Pull_DefaultLocal()
+    {
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("pull /sdcard/foo.txt"));
+
+        Assert.NotNull(parsed);
+        var pull = Assert.IsType<PullVerb>(parsed!.VerbOptions);
+        Assert.Equal("/sdcard/foo.txt", pull.Remote);
+        Assert.Null(pull.Local);
+    }
+
+    [Fact]
+    public void Parse_Bugreport_Path()
+    {
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("bugreport /tmp/report.zip"));
+
+        Assert.NotNull(parsed);
+        Assert.Equal("/tmp/report.zip", Assert.IsType<BugreportVerb>(parsed!.VerbOptions).LocalPath);
+    }
+
+    [Fact]
+    public void Parse_Mdns_Subcommand()
+    {
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("mdns check"));
+
+        Assert.NotNull(parsed);
+        Assert.Equal("check", Assert.IsType<MdnsVerb>(parsed!.VerbOptions).Subcommand);
+    }
+
+    [Fact]
+    public void Parse_Disconnect_All()
+    {
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("disconnect"));
+
+        Assert.NotNull(parsed);
+        Assert.Null(Assert.IsType<DisconnectVerb>(parsed!.VerbOptions).Endpoint);
+    }
+
+    [Fact]
+    public void Parse_Reverse_RemoveAll()
+    {
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("reverse --remove-all"));
+
+        Assert.NotNull(parsed);
+        Assert.True(Assert.IsType<ReverseVerb>(parsed!.VerbOptions).RemoveAll);
+    }
+
+    [Fact]
+    public void Parse_Shell_NoPty_Flag()
+    {
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("shell -T getprop ro.build.version.release"));
+
+        Assert.NotNull(parsed);
+        var shell = Assert.IsType<ShellVerb>(parsed!.VerbOptions);
+        Assert.True(shell.NoPty);
+        Assert.Equal("getprop ro.build.version.release", string.Join(' ', shell.Command));
+    }
+
+    [Fact]
+    public void Parse_Shell_TermOption()
+    {
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("shell --term xterm-256color ls"));
+
+        Assert.NotNull(parsed);
+        var shell = Assert.IsType<ShellVerb>(parsed!.VerbOptions);
+        Assert.Equal("xterm-256color", shell.Term);
+        Assert.Equal("ls", string.Join(' ', shell.Command));
+    }
+
+    [Fact]
+    public void Parse_Logcat_WithArgs()
+    {
+        // logcat's dash-prefixed args need a `--` separator (same as the shell verb)
+        // so CommandLineParser treats them as positional values, not options.
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("logcat -- -d -t 5"));
+
+        Assert.NotNull(parsed);
+        var logcat = Assert.IsType<LogcatVerb>(parsed!.VerbOptions);
+        Assert.Equal(["-d", "-t", "5"], logcat.Args);
+    }
+
+    [Fact]
+    public void Parse_GlobalCompat_OptionsConsumed()
+    {
+        // -a, -t <id>, -L <socket>, --one-device <serial>, --exit-on-disconnect
+        // are accepted for binary compatibility with the official adb.
+        ParsedCommand? parsed = CliParser.Parse(Tokenize(
+            "-a -t 1 -L socket:5037 --one-device SER --exit-on-disconnect get-state"));
+
+        Assert.NotNull(parsed);
+        Assert.Equal("get-state", parsed!.Verb);
+        Assert.Equal("SER", parsed.Globals.Serial);
+    }
+
+    [Fact]
+    public void Parse_MissingHostArgument_ReturnsNull()
+    {
+        Assert.Null(CliParser.Parse(Tokenize("-H")));
+    }
+
+    [Fact]
+    public void Parse_HelpFlag_ReturnsNull()
+    {
+        Assert.Null(CliParser.Parse(Tokenize("--help")));
+        Assert.Null(CliParser.Parse(Tokenize("-h")));
+        Assert.Null(CliParser.Parse(Tokenize("-?")));
+    }
+
     /// <summary>
     /// Splits a command line into arguments using simple POSIX-like quoting rules
     /// (double quotes preserve spaces; single quotes preserve spaces; backslash

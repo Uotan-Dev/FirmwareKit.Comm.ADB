@@ -9,59 +9,40 @@ namespace FirmwareKit.Comm.ADB.Services;
 /// </summary>
 public enum ShellFrameKind : byte
 {
-    /// <summary>
-    /// STDIN data. 标准输入数据。
-    /// </summary>
+    /// <summary>STDIN data. 标准输入数据。</summary>
     Stdin = 0,
-
-    /// <summary>
-    /// STDOUT data. 标准输出数据。
-    /// </summary>
+    /// <summary>STDOUT data. 标准输出数据。</summary>
     Stdout = 1,
-
-    /// <summary>
-    /// STDERR data. 标准错误数据。
-    /// </summary>
+    /// <summary>STDERR data. 标准错误数据。</summary>
     Stderr = 2,
-
-    /// <summary>
-    /// Exit request carrying the exit code. 携带退出码的退出请求。
-    /// </summary>
+    /// <summary>Exit request carrying the exit code. 携带退出码的退出请求。</summary>
     Exit = 3,
-
-    /// <summary>
-    /// Close STDIN. 关闭标准输入。
-    /// </summary>
+    /// <summary>Close STDIN. 关闭标准输入。</summary>
     CloseStdin = 4,
-
-    /// <summary>
-    /// Window size change. 窗口尺寸变化。
-    /// </summary>
+    /// <summary>Window size change. 窗口尺寸变化。</summary>
     WindowSizeChange = 5,
 }
 
 /// <summary>
-/// A parsed shell v2 frame.
-/// <para>解析后的 shell v2 帧。</para>
+/// A parsed shell v2 protocol frame.
+/// <para>解析后的 shell v2 协议帧。</para>
 /// </summary>
 public readonly struct ShellFrame
 {
-    /// <summary>
-    /// Gets the frame kind.
-    /// <para>获取帧类型。</para>
-    /// </summary>
+    /// <summary>Gets the frame kind.
+    /// <para>获取帧类型。</para></summary>
     public ShellFrameKind Kind { get; }
 
-    /// <summary>
-    /// Gets the frame payload.
-    /// <para>获取帧负载。</para>
-    /// </summary>
+    /// <summary>Gets the frame payload.
+    /// <para>获取帧负载。</para></summary>
     public byte[] Payload { get; }
 
     /// <summary>
     /// Initializes a new shell frame.
     /// <para>初始化新的 shell 帧。</para>
     /// </summary>
+    /// <param name="kind">Frame kind. 帧类型。</param>
+    /// <param name="payload">Frame payload. 帧负载。</param>
     public ShellFrame(ShellFrameKind kind, byte[] payload)
     {
         Kind = kind;
@@ -84,9 +65,13 @@ public sealed class AdbShellClient
     private readonly bool _pty;
 
     /// <summary>
-    /// Initializes a new shell client for the given command.
-    /// <para>为给定命令初始化新的 shell 客户端。</para>
+    /// Initializes a new shell v2 client for the given command.
+    /// <para>为给定命令初始化新的 shell v2 客户端。</para>
     /// </summary>
+    /// <param name="connection">An established ADB connection. 已建立的 ADB 连接。</param>
+    /// <param name="command">The shell command to execute. 待执行的 shell 命令。</param>
+    /// <param name="term">Optional TERM value for a pty session. pty 会话的可选 TERM 值。</param>
+    /// <param name="pty">Whether to allocate a pty. 是否分配伪终端。</param>
     public AdbShellClient(global::FirmwareKit.Comm.ADB.AdbConnection connection, string command, string? term = null, bool pty = false)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
@@ -116,10 +101,8 @@ public sealed class AdbShellClient
         return sb.ToString();
     }
 
-    /// <summary>
-    /// Executes the command and returns the captured output, error, and exit code.
-    /// <para>执行命令并返回捕获的输出、错误与退出码。</para>
-    /// </summary>
+    /// <summary>Executes the command and returns captured stdout/stderr/exit code.
+    /// 执行命令并返回捕获的输出、错误与退出码。</summary>
     public ShellResult Execute(int timeoutMs = 30000)
     {
         using var stream = _connection.OpenStream(BuildServiceString());
@@ -164,10 +147,8 @@ public sealed class AdbShellClient
             exitCode);
     }
 
-    /// <summary>
-    /// Executes the command, streaming stdout/stderr chunks to the given callbacks.
-    /// <para>执行命令，将 stdout/stderr 数据块流式传递给给定回调。</para>
-    /// </summary>
+    /// <summary>Executes the command, streaming stdout/stderr chunks to the callbacks.
+    /// 执行命令，将 stdout/stderr 数据块流式传递给回调。</summary>
     public int ExecuteStreaming(Action<byte[]>? onStdout, Action<byte[]>? onStderr, CancellationToken cancellationToken = default)
     {
         using var stream = _connection.OpenStream(BuildServiceString());
@@ -207,12 +188,9 @@ public sealed class AdbShellClient
         return exitCode ?? 0;
     }
 
-    /// <summary>
-    /// Extracts the exit code from an Exit frame payload. Modern adbd sends a
-    /// single byte; legacy devices send a 32-bit little-endian value.
-    /// <para>从 Exit 帧负载提取退出码。现代 adbd 发送单字节；
-    /// 旧设备发送 32 位小端值。</para>
-    /// </summary>
+    /// <summary>Extracts the exit code from an Exit frame. Modern adbd sends one byte;
+    /// legacy devices send a 32-bit little-endian value.
+    /// <para>从 Exit 帧负载提取退出码。现代 adbd 发单字节；旧设备发 32 位小端值。</para></summary>
     private static int? ReadExitCode(byte[] payload)
     {
         if (payload is { Length: >= 4 })
@@ -257,10 +235,7 @@ public sealed class AdbShellClient
             Name = "ADB interactive stdin",
         };
 
-        // TreatControlCAsInput throws IOException when stdin is redirected (no real
-        // console handle); only touch it for a true terminal session.
-        // <para>stdin 被重定向时（无真实控制台句柄）TreatControlCAsInput 会抛
-        // IOException；仅在真正的终端会话中访问它。</para>
+        // TreatControlCAsInput throws IOException when stdin is redirected (no console handle).
         bool treatCChanged = false;
         bool previousTreatControlCAsInput = false;
         try

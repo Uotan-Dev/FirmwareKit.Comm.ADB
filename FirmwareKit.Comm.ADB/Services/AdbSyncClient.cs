@@ -20,11 +20,9 @@ public static class SyncIds
     public const string Okay = "OKAY";
     public const string Fail = "FAIL";
 
-    // v2 (sendrecv_v2) ids, matching AOSP file_sync_protocol.h
-    // (MKID('S','T','A','2') etc.). The library currently speaks v1 framing,
-    // so these are reserved for a future v2 implementation.
-    // <para>v2（sendrecv_v2）标识，与 AOSP file_sync_protocol.h 一致
-    // （MKID('S','T','A','2') 等）。库当前只讲 v1 帧格式，这些保留给未来的 v2 实现。</para>
+    // v2 (sendrecv_v2) ids (MKID('S','T','A','2') ...). The library speaks v1
+    // framing today; these are reserved for a future v2 implementation.
+    // <para>v2（sendrecv_v2）标识。库当前只讲 v1 帧格式，保留给未来 v2 实现。</para>
     public const string StatV2 = "STA2";
     public const string ListV2 = "LIS2";
     public const string DentV2 = "DNT2";
@@ -32,40 +30,33 @@ public static class SyncIds
     public const string SendV2 = "SND2";
 }
 
-/// <summary>
-/// Directory entry returned by sync STAT / LIST.
-/// <para>sync STAT / LIST 返回的目录条目。</para>
-/// </summary>
+/// <summary>Directory entry from sync STAT / LIST. sync STAT / LIST 返回的目录条目。</summary>
 public readonly struct SyncEntry
 {
-    /// <summary>
-    /// Gets the entry mode (st_mode).
-    /// <para>获取条目模式（st_mode）。</para>
-    /// </summary>
+    /// <summary>Gets the entry mode bits (st_mode).
+    /// <para>获取条目模式位（st_mode）。</para></summary>
     public uint Mode { get; }
 
-    /// <summary>
-    /// Gets the entry size in bytes.
-    /// <para>获取条目字节大小。</para>
-    /// </summary>
+    /// <summary>Gets the entry size in bytes.
+    /// <para>获取条目字节大小。</para></summary>
     public uint Size { get; }
 
-    /// <summary>
-    /// Gets the modification time (Unix seconds).
-    /// <para>获取修改时间（Unix 秒）。</para>
-    /// </summary>
+    /// <summary>Gets the modification time as Unix seconds.
+    /// <para>获取修改时间（Unix 秒）。</para></summary>
     public uint Time { get; }
 
-    /// <summary>
-    /// Gets the entry name.
-    /// <para>获取条目名称。</para>
-    /// </summary>
+    /// <summary>Gets the entry name.
+    /// <para>获取条目名称。</para></summary>
     public string Name { get; }
 
     /// <summary>
     /// Initializes a new sync entry.
     /// <para>初始化新的 sync 条目。</para>
     /// </summary>
+    /// <param name="mode">Mode bits (st_mode). 模式位（st_mode）。</param>
+    /// <param name="size">Size in bytes. 字节大小。</param>
+    /// <param name="time">Modification time as Unix seconds. 修改时间（Unix 秒）。</param>
+    /// <param name="name">Entry name. 条目名称。</param>
     public SyncEntry(uint mode, uint size, uint time, string name)
     {
         Mode = mode;
@@ -76,13 +67,11 @@ public readonly struct SyncEntry
 }
 
 /// <summary>
-/// Client for the ADB sync service ("sync:") implementing file transfer
-/// (SEND / RECV / STAT / LIST), aligned with AOSP file_sync_protocol.h.
-/// The current implementation speaks the v1 wire format, which adbd accepts
-/// even when sendrecv_v2 is negotiated.
-/// <para>ADB sync 服务（"sync:"）客户端，实现文件传输（SEND / RECV / STAT / LIST），
-/// 与 AOSP file_sync_protocol.h 对齐。当前实现使用 v1 线上格式；
-/// 即使协商了 sendrecv_v2，adbd 也接受 v1 格式。</para>
+/// Client for the ADB sync service ("sync:"), implementing file transfer
+/// (SEND / RECV / STAT / LIST) aligned with AOSP file_sync_protocol.h. Speaks the
+/// v1 wire format, which adbd accepts even when sendrecv_v2 is negotiated.
+/// <para>ADB sync 服务客户端，实现文件传输（SEND / RECV / STAT / LIST），与 AOSP
+/// file_sync_protocol.h 对齐。使用 v1 线上格式，即使协商了 sendrecv_v2，adbd 也接受。</para>
 /// </summary>
 public sealed class AdbSyncClient : IDisposable
 {
@@ -102,8 +91,8 @@ public sealed class AdbSyncClient : IDisposable
     /// <para>初始化新的 sync 客户端。</para>
     /// </summary>
     /// <param name="connection">The connected ADB connection. 已连接的 ADB 连接。</param>
-    /// <param name="useV2">Whether to use the sendrecv_v2 wire format. 是否使用 sendrecv_v2 线上格式。</param>
-    /// <param name="maxChunk">Maximum chunk size for payloads. 负载最大块大小。</param>
+    /// <param name="useV2">Whether to enable sendrecv_v2 when supported. 支持时是否启用 sendrecv_v2。</param>
+    /// <param name="maxChunk">Maximum chunk size for data payloads. 负载最大块大小。</param>
     public AdbSyncClient(global::FirmwareKit.Comm.ADB.AdbConnection connection, bool useV2 = true, uint maxChunk = DefaultMaxChunk)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
@@ -117,18 +106,15 @@ public sealed class AdbSyncClient : IDisposable
         {
             _stream = _connection.OpenStream("sync:");
         }
-
         return _stream;
     }
 
     /// <summary>
-    /// Queries the status of a single remote file or directory. The v1 STAT
-    /// response is a fixed <c>sync_stat_v1</c> struct: id(4) + mode(4) +
-    /// size(4) + mtime(4); there is no name field, so the entry name is derived
-    /// from the requested path.
-    /// <para>查询单个远端文件或目录的状态。v1 STAT 响应是固定大小的
-    /// <c>sync_stat_v1</c> 结构：id(4) + mode(4) + size(4) + mtime(4)；
-    /// 不含名字字段，因此条目名取自请求路径。</para>
+    /// Stats a remote file/directory. The v1 STAT response is a fixed
+    /// <c>sync_stat_v1</c> struct (id + mode + size + mtime); there is no name field,
+    /// so the entry name is derived from the requested path.
+    /// <para>查询单个远端文件或目录状态。v1 STAT 响应为固定 sync_stat_v1 结构
+    /// （id + mode + size + mtime），无名字字段，条目名取自请求路径。</para>
     /// </summary>
     public SyncEntry? Stat(string remotePath)
     {
@@ -160,11 +146,10 @@ public sealed class AdbSyncClient : IDisposable
     }
 
     /// <summary>
-    /// Lists the contents of a remote directory. Each v1 DENT entry is
-    /// id(4) + mode(4) + size(4) + mtime(4) + namelen(4) + name; the list ends
-    /// with a DONE status message.
-    /// <para>列出远端目录的内容。每个 v1 DENT 条目为 id(4) + mode(4) +
-    /// size(4) + mtime(4) + namelen(4) + name；列表以 DONE 状态消息结束。</para>
+    /// Lists a remote directory. Each v1 DENT entry is id + mode + size + mtime +
+    /// namelen + name; the list ends with a DONE status.
+    /// <para>列出远端目录内容。每个 v1 DENT 条目为 id + mode + size + mtime +
+    /// namelen + name，以 DONE 状态结束。</para>
     /// </summary>
     public IReadOnlyList<SyncEntry> List(string remotePath)
     {
@@ -214,6 +199,10 @@ public sealed class AdbSyncClient : IDisposable
     /// Pushes a local file to the device.
     /// <para>将本地文件推送到设备。</para>
     /// </summary>
+    /// <param name="localPath">Path to the local file. 本地文件路径。</param>
+    /// <param name="remotePath">Destination path on the device. 设备上的目标路径。</param>
+    /// <param name="mode">Unix mode bits (default 0644). Unix 模式位（默认 0644）。</param>
+    /// <param name="mtime">Modification time as Unix seconds (0 = now). 修改时间（Unix 秒，0 表示当前）。</param>
     public void Push(string localPath, string remotePath, uint mode = 0x81A4 /* 0644 */, uint mtime = 0)
     {
         if (localPath is null) throw new ArgumentNullException(nameof(localPath));
@@ -224,8 +213,12 @@ public sealed class AdbSyncClient : IDisposable
     }
 
     /// <summary>
-    /// Pushes a stream to the device under the given remote path.
-    /// <para>将流推送到设备上的指定远端路径。</para>
+    /// Pushes a stream to the device. The v1 SEND target is "path,mode" where AOSP
+    /// formats the mode as ",0%o" (e.g. ",0100644"): the leading 0 is required
+    /// because adbd parses the mode with strtolu(...,0) (auto-detect base), so
+    /// without it "100644" is read as decimal and secure_mkdirs() fails.
+    /// <para>将流推送到设备。v1 SEND 目标为 "path,mode"，AOSP 用 ",0%o" 格式化 mode
+    /// （如 ",0100644"）：前导 0 是必需的，因为 adbd 用 strtolu(...,0) 自动识别进制。</para>
     /// </summary>
     public void PushStream(Stream source, string remotePath, uint mode = 0x81A4, uint mtime = 0)
     {
@@ -238,11 +231,7 @@ public sealed class AdbSyncClient : IDisposable
             mtime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         }
 
-        // v1 SEND target is "path,mode" (mode in octal). The mtime is NOT part
-        // of the target: it travels in the DONE message below (msglen field).
-        // <para>v1 SEND 目标为 "path,mode"（mode 为八进制）。mtime 不在目标中，
-        // 而是随下方的 DONE 消息（msglen 字段）传递。</para>
-        string sendTarget = $"{remotePath},{Convert.ToString(mode, 8)}";
+        string sendTarget = $"{remotePath},0{Convert.ToString(mode, 8)}";
         byte[] sendRequest = BuildV1Packet(SyncIds.Send, Encoding.UTF8.GetBytes(sendTarget));
         stream.Write(sendRequest);
 
@@ -250,10 +239,7 @@ public sealed class AdbSyncClient : IDisposable
         while (true)
         {
             int read = source.Read(buffer, 0, buffer.Length);
-            if (read <= 0)
-            {
-                break;
-            }
+            if (read <= 0) break;
 
             byte[] chunk = new byte[read];
             Buffer.BlockCopy(buffer, 0, chunk, 0, read);
@@ -261,11 +247,8 @@ public sealed class AdbSyncClient : IDisposable
             stream.Write(dataPacket);
         }
 
-        // v1 DONE is an 8-byte status message: id(4) + mtime as the msglen
-        // field (4). Appending the mtime as a payload would leave stray bytes
-        // on the wire and corrupt the next request.
-        // <para>v1 DONE 是 8 字节状态消息：id(4) + 以 msglen 字段携带的 mtime(4)。
-        // 若把 mtime 作为负载追加，会在线上留下多余字节并破坏下一个请求。</para>
+        // v1 DONE is an 8-byte status: id(4) + mtime in the msglen field (4).
+        // Appending the mtime as a payload would leave stray bytes on the wire.
         byte[] donePacket = new byte[V1HeaderSize];
         Encoding.ASCII.GetBytes(SyncIds.Done).CopyTo(donePacket, 0);
         BitConverter.GetBytes(mtime).CopyTo(donePacket, 4);
@@ -275,9 +258,11 @@ public sealed class AdbSyncClient : IDisposable
     }
 
     /// <summary>
-    /// Pulls a remote file from the device into a local file.
+    /// Pulls a remote file into a local file.
     /// <para>将设备上的远端文件拉取到本地文件。</para>
     /// </summary>
+    /// <param name="remotePath">Source path on the device. 设备上的源路径。</param>
+    /// <param name="localPath">Destination local path. 本地目标路径。</param>
     public void Pull(string remotePath, string localPath)
     {
         if (remotePath is null) throw new ArgumentNullException(nameof(remotePath));
@@ -287,10 +272,7 @@ public sealed class AdbSyncClient : IDisposable
         PullStream(remotePath, fs);
     }
 
-    /// <summary>
-    /// Pulls a remote file into a stream.
-    /// <para>将远端文件拉取到流中。</para>
-    /// </summary>
+    /// <summary>Pulls a remote file into a stream. 将远端文件拉取到流中。</summary>
     public void PullStream(string remotePath, Stream destination)
     {
         if (remotePath is null) throw new ArgumentNullException(nameof(remotePath));
@@ -306,10 +288,7 @@ public sealed class AdbSyncClient : IDisposable
             string id = Encoding.ASCII.GetString(header, 0, 4);
             uint length = BitConverter.ToUInt32(header, 4);
 
-            if (id == SyncIds.Done)
-            {
-                break;
-            }
+            if (id == SyncIds.Done) break;
 
             if (id == SyncIds.Fail)
             {
@@ -328,10 +307,7 @@ public sealed class AdbSyncClient : IDisposable
         }
     }
 
-    /// <summary>
-    /// Closes the sync service stream.
-    /// <para>关闭 sync 服务流。</para>
-    /// </summary>
+    /// <summary>Closes the sync service stream. 关闭 sync 服务流。</summary>
     public void Close()
     {
         if (_disposed) return;
@@ -357,8 +333,8 @@ public sealed class AdbSyncClient : IDisposable
     }
 
     /// <summary>
-    /// Disposes the sync client.
-    /// <para>释放 sync 客户端。</para>
+    /// Releases the sync client and its underlying stream.
+    /// <para>释放 sync 客户端及其底层流。</para>
     /// </summary>
     public void Dispose()
     {
@@ -372,10 +348,7 @@ public sealed class AdbSyncClient : IDisposable
         string id = Encoding.ASCII.GetString(header, 0, 4);
         uint length = BitConverter.ToUInt32(header, 4);
 
-        if (id == SyncIds.Okay)
-        {
-            return;
-        }
+        if (id == SyncIds.Okay) return;
 
         if (id == SyncIds.Fail)
         {
@@ -386,10 +359,6 @@ public sealed class AdbSyncClient : IDisposable
         throw new InvalidDataException($"Unexpected sync response id '{id}' during {operation}.");
     }
 
-    /// <summary>
-    /// Reads the next 4 bytes as a little-endian unsigned integer.
-    /// <para>将接下来的 4 个字节读取为小端无符号整数。</para>
-    /// </summary>
     private uint ReadUInt32(global::FirmwareKit.Comm.ADB.AdbStream stream) =>
         BitConverter.ToUInt32(ReadExact(stream, 4), 0);
 
@@ -405,10 +374,9 @@ public sealed class AdbSyncClient : IDisposable
     }
 
     /// <summary>
-    /// Reads exactly the requested number of bytes, buffering any excess bytes
-    /// from a WRTE chunk that carries multiple sync responses.
-    /// <para>精确读取指定数量的字节，并将承载多个 sync 响应的
-    /// WRTE 块中多余的字节缓存起来。</para>
+    /// Reads exactly <paramref name="length"/> bytes, buffering excess bytes from a
+    /// WRTE chunk that carries multiple sync responses.
+    /// <para>精确读取指定字节数，并将承载多个 sync 响应的 WRTE 块中多余字节缓存。</para>
     /// </summary>
     private byte[] ReadExact(global::FirmwareKit.Comm.ADB.AdbStream stream, int length)
     {
@@ -420,7 +388,6 @@ public sealed class AdbSyncClient : IDisposable
         byte[] result = new byte[length];
         int offset = 0;
 
-        // Drain any bytes buffered from a previous chunk first.
         while (offset < length && _readBuffer.Count > 0)
         {
             result[offset++] = _readBuffer.Dequeue();

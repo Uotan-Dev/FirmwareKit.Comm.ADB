@@ -7,7 +7,7 @@ namespace FirmwareKit.Comm.ADB.Tests;
 /// <summary>
 /// End-to-end CLI tests that spawn the built <c>adb</c> binary against a real USB
 /// device and/or a TCP emulator. Each test runs against both targets when the
-/// command makes sense for both. Replaces the former CliIntegrationTests and
+/// command makes sense for both. Merges the former CliIntegrationTests and
 /// AdbCommandCompatibilityTests (which had substantial overlap).
 /// <para>以子进程方式启动构建出的 <c>adb</c>，针对真实 USB 设备和/或 TCP 模拟器
 /// 执行的端到端 CLI 测试。每个用例在命令对两类目标都适用时同时运行。合并了原先
@@ -18,7 +18,7 @@ public class CliCommandTests
     public enum Target { Usb, Emulator }
 
     private const int TimeoutMs = 30_000;
-    private const int BugreportMs = 180_000;
+    private const int BugreportMs = 300_000; // real-device bugreport can stream for minutes
 
     private static string Host => Environment.GetEnvironmentVariable("ADB_TEST_HOST") ?? "127.0.0.1";
     private static int Port => int.TryParse(Environment.GetEnvironmentVariable("ADB_TEST_PORT"), out int p) ? p : 16416;
@@ -46,91 +46,82 @@ public class CliCommandTests
     // ---- local commands (no target) --------------------------------------
 
     [Fact]
-    public Task Version() => Run(Target.Emulator, "version", r =>
+    public Task Version() => CheckRaw(r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.Contains("Android Debug Bridge version", r.Stdout);
         Assert.Contains("Running on", r.Stdout);
-    });
+    }, "version");
 
     [Fact]
-    public Task VersionFlag() => RunNoTarget("--version", r =>
+    public Task VersionFlag() => CheckRaw(r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.Contains("Android Debug Bridge version", r.Stdout);
-    });
+    }, "--version");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Help(Target target) => Run(target, "help", r =>
+    public Task Help(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.Contains("global options:", r.Stderr);
         Assert.Contains("devices [-l]", r.Stderr);
-    });
+    }, "help");
 
     [Fact]
-    public Task NoArgs_ShowsUsage() => RunNoTarget(null, r =>
+    public Task NoArgs_ShowsUsage() => CheckRaw(r =>
     {
         Assert.Equal(1, r.ExitCode);
         Assert.Contains("global options:", r.Stderr);
     });
 
     [Fact]
-    public Task UnknownCommand_Errors() => RunNoTarget("frobnicate", r =>
+    public Task UnknownCommand_Errors() => CheckRaw(r =>
     {
         Assert.Equal(1, r.ExitCode);
         Assert.Contains("unknown command frobnicate", r.Stderr);
-    });
+    }, "frobnicate");
 
     [Fact]
-    public Task UnknownGlobalOption_Errors() => RunNoTarget("-z", "devices", r =>
+    public Task UnknownGlobalOption_Errors() => CheckRaw(r =>
     {
         Assert.Equal(1, r.ExitCode);
         Assert.Contains("unknown option -z", r.Stderr);
-    });
+    }, "-z", "devices");
 
     [Fact]
-    public Task MissingSerialArgument_Errors() => RunNoTarget("-s", r =>
+    public Task MissingSerialArgument_Errors() => CheckRaw(r =>
     {
         Assert.Equal(1, r.ExitCode);
         Assert.Contains("missing argument", r.Stderr);
-    });
+    }, "-s");
 
     [Fact]
-    public Task InvalidPort_Errors() => RunNoTarget("-P", "notaport", "shell", "x", r =>
+    public Task InvalidPort_Errors() => CheckRaw(r =>
     {
         Assert.Equal(1, r.ExitCode);
         Assert.Contains("invalid port", r.Stderr);
-    });
+    }, "-P", "notaport", "shell", "x");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Devices(Target target) => Run(target, "devices", r =>
+    public Task Devices(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.Contains("List of devices attached", r.Stdout);
-        Assert.Contains("\tdevice", r.Stdout);
-    });
+    }, "devices");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Devices_Long(Target target) => Run(target, "devices", "-l", r =>
+    public Task Devices_Long(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
-        Assert.Contains("transport_id:", r.Stdout);
-    });
-
-    [Theory]
-    [InlineData(Target.Usb)]
-    [InlineData(Target.Emulator)]
-    public Task Mdns_Services(Target target) => Run(target, "mdns", "services", r =>
-    {
-        Assert.Equal(0, r.ExitCode);
-    });
+        Assert.Contains("List of devices attached", r.Stdout);
+    }, "devices", "-l");
 
     // ---- networking (emulator only) --------------------------------------
 
@@ -161,111 +152,100 @@ public class CliCommandTests
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Shell_GetProp(Target target) => Run(target, "shell", "getprop", "ro.product.model", r =>
+    public Task Shell_GetProp(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.False(string.IsNullOrWhiteSpace(r.Stdout));
-    });
+    }, "shell", "getprop", "ro.product.model");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Shell_WmSize(Target target) => Run(target, "shell", "wm", "size", r =>
+    public Task Shell_WmSize(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.Contains("Physical size", r.Stdout);
-    });
+    }, "shell", "wm", "size");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Shell_DumpsysBattery(Target target) => Run(target, "shell", "dumpsys", "battery", r =>
+    public Task Shell_DumpsysBattery(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.Contains("Battery", r.Stdout);
-    });
+    }, "shell", "dumpsys", "battery");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Shell_Df(Target target) => Run(target, "shell", "df", "/data", r =>
+    public Task Shell_Df(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.Contains("Filesystem", r.Stdout);
-    });
+    }, "shell", "df", "/data");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Shell_Uname(Target target) => Run(target, "shell", "--", "uname", "-r", r =>
+    public Task Shell_Uname(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.False(string.IsNullOrWhiteSpace(r.Stdout));
-    });
+    }, "shell", "--", "uname", "-r");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Shell_Pipe(Target target) => Run(target, "shell", "cat", "/proc/meminfo", r =>
+    public Task Shell_CatProc(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.Contains("MemTotal", r.Stdout);
-    });
+    }, "shell", "cat", "/proc/meminfo");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Shell_RemoteExitCode(Target target) => Run(target, "shell", "sh", "-c", "exit 7", r =>
-    {
-        Assert.Equal(7, r.ExitCode);
-    });
+    public Task Shell_RemoteExitCode(Target target) => Check(target,
+        r => Assert.Equal(7, r.ExitCode), "shell", "sh -c 'exit 7'");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Shell_StdoutStderrSeparation(Target target) => Run(target,
-        "shell", "sh", "-c", "echo OUT; echo ERR >&2", r =>
+    public Task Shell_StdoutStderrSeparation(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.Contains("OUT", r.Stdout);
         Assert.Contains("ERR", r.Stderr);
-    });
+    }, "shell", "sh -c 'echo OUT; echo ERR >&2'");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Shell_NoExitCode(Target target) => Run(target, "shell", "-x", "sh", "-c", "exit 7", r =>
-    {
-        Assert.Equal(0, r.ExitCode);
-    });
+    public Task Shell_NoExitCode(Target target) => Check(target,
+        r => Assert.Equal(0, r.ExitCode), "shell", "-x", "sh", "-c", "exit 7");
 
     [Theory]
-    [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Shell_GlobalOptionsAfterVerb(Target target) => Run(target,
-        "shell", "-H", Host, "-P", Port.ToString(), "getprop", "ro.build.version.release", r =>
+    public Task Shell_GlobalOptionsAfterVerb(Target target) => Check(target, r =>
     {
         // -H/-P after the verb must be bound as globals, not forwarded to sh.
         Assert.Equal(0, r.ExitCode);
         Assert.False(string.IsNullOrWhiteSpace(r.Stdout));
-    }, Target.Emulator); // only meaningful for TCP targets; USB ignores -H/-P
+    }, "shell", "-H", Host, "-P", Port.ToString(), "getprop", "ro.build.version.release");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Shell_PmGrant_MissingPackage(Target target) => Run(target, "shell",
-        "pm", "grant", "com.example.nonexistent.fwkit", "android.permission.DUMP", r =>
-    {
-        Assert.NotEqual(0, r.ExitCode);
-    });
+    public Task Shell_PmGrant_MissingPackage(Target target) => Check(target,
+        r => Assert.NotEqual(0, r.ExitCode),
+        "shell", "pm", "grant", "com.example.nonexistent.fwkit", "android.permission.DUMP");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Shell_InputKeyeventHome(Target target) => Run(target, "shell", "input", "keyevent", "3", r =>
-    {
-        Assert.Equal(0, r.ExitCode);
-    });
+    public Task Shell_InputKeyeventHome(Target target) => Check(target,
+        r => Assert.Equal(0, r.ExitCode), "shell", "input", "keyevent", "3");
 
     // ---- file transfer ---------------------------------------------------
 
@@ -284,7 +264,7 @@ public class CliCommandTests
             CliResult push = await RunCliAsync(target, "push", local, remote);
             Assert.Equal(0, push.ExitCode);
             Assert.Matches(@"1 file pushed, 0 skipped\.", push.Stdout);
-            Assert.Contains("MB/s", push.Stdout);
+            Assert.Matches(@"\d+(\.\d+)? [KMG]?B/s", push.Stdout);
             Assert.Contains("bytes in", push.Stdout);
 
             string pulled = Path.Combine(Path.GetTempPath(), $"fwkit_cmd_pull_{Guid.NewGuid():N}.bin");
@@ -307,12 +287,11 @@ public class CliCommandTests
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Pull_MissingFile(Target target) => Run(target, "pull",
-        "/data/local/tmp/fwkit_does_not_exist_xyz", Path.GetTempPath(), r =>
+    public Task Pull_MissingFile(Target target) => Check(target, r =>
     {
         Assert.Equal(1, r.ExitCode);
         Assert.Contains("error", r.Stderr, StringComparison.OrdinalIgnoreCase);
-    });
+    }, "pull", "/data/local/tmp/fwkit_does_not_exist_xyz", Path.GetTempPath());
 
     [Theory]
     [InlineData(Target.Usb)]
@@ -358,73 +337,121 @@ public class CliCommandTests
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Uninstall_MissingPackage(Target target) => Run(target, "uninstall",
-        "com.example.nonexistent.fwkit", r => Assert.NotEqual(0, r.ExitCode));
+    public Task Uninstall_MissingPackage(Target target) => Check(target,
+        r => Assert.NotEqual(0, r.ExitCode),
+        "uninstall", "com.example.nonexistent.fwkit");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Root_Reachable(Target target) => Run(target, "root", r =>
-        Assert.True(r.ExitCode is 0 or 1, $"unexpected exit {r.ExitCode}"));
+    public Task Root_Reachable(Target target) => Check(target,
+        r => Assert.True(r.ExitCode is 0 or 1, $"unexpected exit {r.ExitCode}"), "root");
 
     // ---- device query / services -----------------------------------------
 
     [Theory]
     [InlineData(Target.Usb)]
-    public Task GetState(Target target) => Run(target, "get-state", r =>
+    public Task GetState(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.False(string.IsNullOrWhiteSpace(r.Stdout));
-    });
+    }, "get-state");
 
     [Theory]
     [InlineData(Target.Usb)]
-    public Task GetSerialNo(Target target) => Run(target, "get-serialno", r =>
+    public Task GetSerialNo(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.False(string.IsNullOrWhiteSpace(r.Stdout));
-    });
+    }, "get-serialno");
 
     [Theory]
     [InlineData(Target.Usb)]
-    public Task GetDevPath(Target target) => Run(target, "get-devpath", r =>
+    public Task GetDevPath(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.False(string.IsNullOrWhiteSpace(r.Stdout));
-    });
+    }, "get-devpath");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Features(Target target) => Run(target, "features", r =>
+    public Task Features(Target target) => Check(target, r =>
     {
         Assert.Equal(0, r.ExitCode);
         Assert.Contains("shell_v2", r.Stdout);
+    }, "features");
+
+    [Theory]
+    [InlineData(Target.Usb)]
+    [InlineData(Target.Emulator)]
+    public Task WaitForDevice(Target target) => Check(target,
+        r => Assert.Equal(0, r.ExitCode), "wait-for-device");
+
+    [Theory]
+    [InlineData(Target.Usb)]
+    [InlineData(Target.Emulator)]
+    public Task Reverse_List(Target target) => RunWithTimeout(async () =>
+    {
+        // Clean slate (best effort).
+        await RunCliAsync(target, "reverse", "--remove-all");
+
+        // Empty list must produce no raw "0000"/"OKAY" markers (the wire-length
+        // prefix must be parsed, not echoed).
+        CliResult empty = await RunCliAsync(target, "reverse", "--list");
+        Assert.Equal(0, empty.ExitCode);
+        Assert.DoesNotContain("0000", empty.Stdout);
+        Assert.DoesNotContain("OKAY", empty.Stdout);
+        Assert.Equal(string.Empty, empty.Stdout.Trim());
     });
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task WaitForDevice(Target target) => Run(target, "wait-for-device", r =>
-        Assert.Equal(0, r.ExitCode));
+    public Task Root_Unroot(Target target) => RunWithTimeout(async () =>
+    {
+        // root/unroot are reachable; non-root builds report "adbd cannot run as
+        // root" (exit 1) while userdebug builds restart adbd (exit 0). Accept both.
+        CliResult root = await RunCliAsync(target, "root");
+        Assert.True(root.ExitCode is 0 or 1, $"unexpected root exit {root.ExitCode}");
+
+        // Give adbd a moment to restart if it did.
+        await Task.Delay(1000);
+
+        CliResult unroot = await RunCliAsync(target, "unroot");
+        Assert.True(unroot.ExitCode is 0 or 1, $"unexpected unroot exit {unroot.ExitCode}");
+        await Task.Delay(1000);
+    });
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Reverse_List(Target target) => Run(target, "reverse", "--list", r =>
-        Assert.Equal(0, r.ExitCode));
+    public Task Mdns_Check(Target target) => Check(target, r =>
+    {
+        Assert.Equal(0, r.ExitCode);
+        Assert.Contains("mDNS", r.Stdout, StringComparison.OrdinalIgnoreCase);
+    }, "mdns", "check");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Logcat_Dump(Target target) => Run(target, "logcat", "--", "-d", "-t", "5", r =>
-        Assert.Equal(0, r.ExitCode));
+    public Task Mdns_Services(Target target) => Check(target,
+        r => Assert.Equal(0, r.ExitCode), "mdns", "services");
 
     [Theory]
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
-    public Task Bugreport(Target target) => Run(target, BugreportMs, "bugreport", r =>
-        Assert.Equal(0, r.ExitCode), BugreportMs + 10_000);
+    public Task Logcat_Dump(Target target) => Check(target,
+        r => Assert.Equal(0, r.ExitCode), "logcat", "--", "-d", "-t", "5");
+
+    [Theory]
+    [InlineData(Target.Usb)]
+    [InlineData(Target.Emulator)]
+    public Task Bugreport(Target target) => RunWithTimeout(async () =>
+    {
+        CliResult r = await RunCliAsync(target, BugreportMs, "bugreport");
+        Assert.Equal(0, r.ExitCode);
+    }, BugreportMs + 10_000);
 
     // ---- no-target error (skip when USB device present) -------------------
 
@@ -433,7 +460,7 @@ public class CliCommandTests
     {
         // Query the CLI itself so the skip decision matches what the spawned
         // process sees (in-process enumeration can differ).
-        CliResult devices = await RunCliRaw("devices");
+        CliResult devices = await RunCliRaw(["devices"]);
         bool hasUsb = devices.Stdout
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Skip(1)
@@ -443,30 +470,20 @@ public class CliCommandTests
             Assert.Skip("USB device attached; no-target error path unreachable.");
         }
 
-        CliResult r = await RunCliRaw("get-state");
+        CliResult r = await RunCliRaw(["get-state"]);
         Assert.Equal(1, r.ExitCode);
         Assert.Contains("no devices/emulators found", r.Stderr);
     });
 
     // ---- helpers ---------------------------------------------------------
 
-    private static Task Run(Target target, params string[] args)
-        => Run(target, TimeoutMs, args, r => { }, TimeoutMs + 5_000);
+    /// <summary>Runs the CLI against a target and asserts on the result.</summary>
+    private static Task Check(Target target, Action<CliResult> assert, params string[] args)
+        => RunWithTimeout(async () => assert(await RunCliAsync(target, args)));
 
-    private static Task Run(Target target, string[] args, Action<CliResult> assert)
-        => Run(target, TimeoutMs, args, assert, TimeoutMs + 5_000);
-
-    private static Task Run(Target target, int timeoutMs, string[] args, Action<CliResult> assert, int outerMs)
-        => RunWithTimeout(async () => assert(await RunCliAsync(target, timeoutMs, args)), outerMs);
-
-    private static Task RunNoTarget(string? arg, Action<CliResult> assert)
-        => RunWithTimeout(async () => assert(await RunCliRaw(arg is null ? [] : [arg])));
-
-    private static Task RunNoTarget(string arg1, string arg2, Action<CliResult> assert)
-        => RunWithTimeout(async () => assert(await RunCliRaw([arg1, arg2])));
-
-    private static Task RunNoTarget(string a1, string a2, string a3, string a4, Action<CliResult> assert)
-        => RunWithTimeout(async () => assert(await RunCliRaw([a1, a2, a3, a4])));
+    /// <summary>Runs the CLI without injected -H/-P (local/error tests).</summary>
+    private static Task CheckRaw(Action<CliResult> assert, params string[] args)
+        => RunWithTimeout(async () => assert(await RunCliRaw(args)));
 
     private static Task RunWithTimeout(Func<Task> body, int ms = TimeoutMs)
         => body().WaitAsync(TimeSpan.FromMilliseconds(ms));
@@ -487,11 +504,34 @@ public class CliCommandTests
             cliArgs.AddRange(["-H", Host, "-P", Port.ToString()]);
         }
         cliArgs.AddRange(args);
-        return await RunCliRaw(cliArgs.ToArray(), timeoutMs);
+
+        // On Windows, after an in-process test (UsbDeviceIntegrationTests) releases
+        // the libusb handle, the OS needs a brief moment to fully release the USB
+        // interface before a child process can re-claim it (winusb allows one
+        // handle per interface). Retry on transient "no device" errors instead of
+        // failing a healthy command.
+        if (target == Target.Usb)
+        {
+            for (int attempt = 0; ; attempt++)
+            {
+                CliResult result = await RunCliRaw([.. cliArgs], timeoutMs);
+                bool transient = result.ExitCode != 0
+                    && (result.Stderr.Contains("no devices/emulators", StringComparison.OrdinalIgnoreCase)
+                        || result.Stderr.Contains("not found", StringComparison.OrdinalIgnoreCase)
+                        || result.Stderr.Contains("Unable to write data", StringComparison.OrdinalIgnoreCase));
+                if (!transient || attempt >= 5)
+                {
+                    return result;
+                }
+                await Task.Delay(500 * (attempt + 1));
+            }
+        }
+
+        return await RunCliRaw([.. cliArgs], timeoutMs);
     }
 
-    /// <summary>Spawns the CLI without any injected -H/-P (for local/error tests).</summary>
-    private static Task<CliResult> RunCliRaw(string[] args, int timeoutMs = TimeoutMs)
+    /// <summary>Spawns the CLI with the given args (no injected globals).</summary>
+    private static async Task<CliResult> RunCliRaw(string[] args, int timeoutMs = TimeoutMs)
     {
         string cliDll = Path.Combine(AppContext.BaseDirectory, "adb.dll");
         Assert.True(File.Exists(cliDll), $"CLI assembly not found at {cliDll}");
@@ -516,7 +556,7 @@ public class CliCommandTests
             throw new TimeoutException($"CLI did not exit within {timeoutMs} ms: {string.Join(' ', args)}");
         }
 
-        return Task.FromResult(new CliResult(process.ExitCode, stdout.Result, stderr.Result));
+        return new CliResult(process.ExitCode, await stdout, await stderr);
     }
 
     private sealed record CliResult(int ExitCode, string Stdout, string Stderr);

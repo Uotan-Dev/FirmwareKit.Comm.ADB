@@ -12,18 +12,17 @@ namespace FirmwareKit.Comm.ADB.Protocol;
 /// </summary>
 public sealed class AdbAuthentication : IDisposable
 {
-    /// <summary>
-    /// Number of DWORDs in a 2048-bit ADB RSA key (64 DWORDs = 256 bytes).
-    /// <para>2048 位 ADB RSA 密钥的 DWORD 数（64 DWORD = 256 字节）。</para>
-    /// </summary>
-    private const int KeyLengthInDwords = 64;
+    private const int KeyLengthInDwords = 64; // 2048-bit key = 256 bytes
 
     private readonly RSA _rsa;
 
     /// <summary>
-    /// Initializes authentication with the supplied RSA key.
-    /// <para>使用提供的 RSA 密钥初始化认证。</para>
+    /// Initializes authentication with the supplied 2048-bit RSA key.
+    /// <para>使用提供的 2048 位 RSA 密钥初始化认证。</para>
     /// </summary>
+    /// <param name="rsa">The RSA key to use. 待使用的 RSA 密钥。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="rsa"/> is <c>null</c>.</exception>
+    /// <exception cref="ArgumentException">The key is not 2048 bits.</exception>
     public AdbAuthentication(RSA rsa)
     {
         _rsa = rsa ?? throw new ArgumentNullException(nameof(rsa));
@@ -37,6 +36,7 @@ public sealed class AdbAuthentication : IDisposable
     /// Creates authentication with a newly generated 2048-bit RSA key.
     /// <para>使用新生成的 2048 位 RSA 密钥创建认证。</para>
     /// </summary>
+    /// <returns>A new <see cref="AdbAuthentication"/> instance. 新的 <see cref="AdbAuthentication"/> 实例。</returns>
     public static AdbAuthentication CreateNew()
     {
         RSA rsa = RSA.Create();
@@ -44,10 +44,8 @@ public sealed class AdbAuthentication : IDisposable
         return new AdbAuthentication(rsa);
     }
 
-    /// <summary>
-    /// Signs the given token with the private key using RSA-PKCS1 + SHA1 (ADB signature).
-    /// <para>使用私钥以 RSA-PKCS1 + SHA1 对给定令牌签名（ADB 签名）。</para>
-    /// </summary>
+    /// <summary>Signs the token with RSA-PKCS1 + SHA1 (ADB signature).
+    /// 用私钥以 RSA-PKCS1 + SHA1 对令牌签名。</summary>
     public byte[] SignToken(byte[] token)
     {
         if (token is null || token.Length == 0)
@@ -60,10 +58,8 @@ public sealed class AdbAuthentication : IDisposable
         return _rsa.SignHash(hash, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1);
     }
 
-    /// <summary>
-    /// Builds the ADB public key payload: base64(RSAPublicKey) + " user@host\0".
-    /// <para>构建 ADB 公钥负载：base64(RSAPublicKey) + " user@host\0"。</para>
-    /// </summary>
+    /// <summary>Builds the ADB public key payload: base64(RSAPublicKey) + " user@host\0".
+    /// 构建 ADB 公钥负载：base64(RSAPublicKey) + " user@host\0"。</summary>
     public byte[] BuildPublicKeyPayload(string? comment = null)
     {
         RSAParameters publicKey = _rsa.ExportParameters(false);
@@ -109,10 +105,8 @@ public sealed class AdbAuthentication : IDisposable
         return buffer;
     }
 
-    /// <summary>
-    /// Converts .NET RSA parameters into the ADB RSAPublicKey fields (n0inv, n, rr, exponent).
-    /// <para>将 .NET RSA 参数转换为 ADB RSAPublicKey 字段（n0inv、n、rr、exponent）。</para>
-    /// </summary>
+    /// <summary>Converts .NET RSA parameters into ADB RSAPublicKey fields (n0inv, n, rr, exponent).
+    /// 将 .NET RSA 参数转换为 ADB RSAPublicKey 字段。</summary>
     public static (uint n0inv, uint[] n, uint[] rr, int exponent) ConvertRsaToAdb(RSAParameters parameters)
     {
         byte[] modulus = parameters.Modulus ?? throw new ArgumentException("Modulus is missing.", nameof(parameters));
@@ -144,13 +138,9 @@ public sealed class AdbAuthentication : IDisposable
         return (n0inv, nTable, rrTable, e);
     }
 
-    /// <summary>
-    /// Converts a big-endian unsigned byte array into a <see cref="BigInteger"/>.
-    /// <para>将大端无符号字节数组转换为 <see cref="BigInteger"/>。</para>
-    /// </summary>
     private static BigInteger FromBigEndianUnsigned(byte[] bytes)
     {
-        // BigInteger expects little-endian; reverse and keep the value positive.
+        // BigInteger expects little-endian input; reverse and keep the value positive.
         byte[] littleEndian = new byte[bytes.Length];
         for (int i = 0; i < bytes.Length; i++)
         {

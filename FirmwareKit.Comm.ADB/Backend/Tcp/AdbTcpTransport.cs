@@ -3,10 +3,8 @@ using System.Net.Sockets;
 namespace FirmwareKit.Comm.ADB.Backend.Tcp;
 
 /// <summary>
-/// ADB transport over a TCP connection (adb connect host:port), used to reach
-/// emulators and network-enabled devices that only expose a local network link.
-/// <para>基于 TCP 连接的 ADB 传输层（adb connect host:port），用于连接仅暴露
-/// 本地网络链接的模拟器与网络设备。</para>
+/// ADB transport over a TCP connection (adb connect host:port).
+/// <para>基于 TCP 连接的 ADB 传输层（adb connect host:port）。</para>
 /// </summary>
 public sealed class AdbTcpTransport : IAdbTransport
 {
@@ -14,20 +12,13 @@ public sealed class AdbTcpTransport : IAdbTransport
     private readonly NetworkStream _stream;
     private bool _disposed;
 
-    /// <summary>
-    /// Gets the remote host. 远端主机。
-    /// </summary>
+    /// <summary>Remote host. 远端主机。</summary>
     public string Host { get; }
 
-    /// <summary>
-    /// Gets the remote port. 远端端口。
-    /// </summary>
+    /// <summary>Remote port. 远端端口。</summary>
     public int Port { get; }
 
-    /// <summary>
-    /// Initializes a new TCP transport and connects to the given host and port.
-    /// <para>初始化新的 TCP 传输层并连接到给定主机与端口。</para>
-    /// </summary>
+    /// <summary>Initializes a new TCP transport and connects. 初始化新的 TCP 传输层并连接。</summary>
     /// <param name="host">Host name or IP address. 主机名或 IP 地址。</param>
     /// <param name="port">TCP port of the adbd service. adbd 服务的 TCP 端口。</param>
     /// <param name="connectTimeoutMs">Connection timeout in milliseconds. 连接超时（毫秒）。</param>
@@ -56,8 +47,7 @@ public sealed class AdbTcpTransport : IAdbTransport
             }
 
             _stream = _client.GetStream();
-            // Guard against a silent peer: surface a read failure instead of
-            // blocking forever. 防止对端静默：读超时抛出异常而非永久阻塞。
+            // Surface a read failure instead of blocking forever on a silent peer.
             _stream.ReadTimeout = 60_000;
         }
         catch
@@ -67,10 +57,8 @@ public sealed class AdbTcpTransport : IAdbTransport
         }
     }
 
-    /// <summary>
-    /// Reads exactly the requested number of bytes, blocking until available.
-    /// <para>精确读取指定数量的字节，阻塞至数据可用。</para>
-    /// </summary>
+    /// <summary>Reads exactly <paramref name="length"/> bytes, blocking until available.
+    /// 精确读取指定字节数，阻塞至数据可用。</summary>
     public byte[] Read(int length)
     {
         if (_disposed)
@@ -99,10 +87,7 @@ public sealed class AdbTcpTransport : IAdbTransport
         return buffer;
     }
 
-    /// <summary>
-    /// Writes all bytes to the transport, returning the number of bytes written.
-    /// <para>向传输层写入全部字节，返回实际写入的字节数。</para>
-    /// </summary>
+    /// <summary>Writes all bytes, returning the count written. 写入全部字节，返回实际写入数。</summary>
     public long Write(byte[] data, int length)
     {
         if (_disposed)
@@ -124,10 +109,8 @@ public sealed class AdbTcpTransport : IAdbTransport
         return length;
     }
 
-    /// <summary>
-    /// Releases the underlying TCP connection.
-    /// <para>释放底层 TCP 连接。</para>
-    /// </summary>
+    /// <summary>Releases the underlying TCP connection.
+    /// <para>释放底层 TCP 连接。</para></summary>
     public void Dispose()
     {
         if (_disposed) return;

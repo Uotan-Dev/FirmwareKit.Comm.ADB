@@ -6,21 +6,10 @@ namespace FirmwareKit.Comm.ADB.Protocol;
 /// </summary>
 public enum AdbAuthType : uint
 {
-    /// <summary>
-    /// Random token issued by the device; client must sign it.
-    /// <para>设备下发的随机令牌，客户端需对其进行签名。</para>
-    /// </summary>
+    /// <summary>Random device token to sign. 设备下发的随机令牌，客户端需签名。</summary>
     Token = 1,
-
-    /// <summary>
-    /// RSA-SHA1 signature of the token using the client's private key.
-    /// <para>使用客户端私钥对令牌做 RSA-SHA1 签名。</para>
-    /// </summary>
+    /// <summary>RSA-SHA1 signature of the token. 用客户端私钥对令牌做的 RSA-SHA1 签名。</summary>
     Signature = 2,
-
-    /// <summary>
-    /// Client's RSA public key (ADB format, base64 + user@host).
-    /// <para>客户端的 RSA 公钥（ADB 格式，base64 + user@host）。</para>
-    /// </summary>
+    /// <summary>Client RSA public key (base64 + user@host). 客户端 RSA 公钥（base64 + user@host）。</summary>
     RSAPublicKey = 3,
 }
