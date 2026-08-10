@@ -1,6 +1,6 @@
+using FirmwareKit.Comm.ADB.Backend.Usb;
 using System.Diagnostics;
 using System.Text;
-using FirmwareKit.Comm.ADB.Backend.Usb;
 
 namespace FirmwareKit.Comm.ADB.Tests;
 

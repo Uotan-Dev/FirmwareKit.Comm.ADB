@@ -11,6 +11,11 @@ public sealed class AdbStream : IDisposable
     private readonly object _lock = new();
     private readonly Queue<byte[]> _incoming = new();
     private readonly ManualResetEventSlim _dataAvailable = new(false);
+    // Signaled when the peer's OKAY arrives (RemoteId assigned) or the stream
+    // closes/faults, so Write() can block without polling.
+    // <para>对端 OKAY 到达（RemoteId 赋值）或流关闭/故障时触发，使 Write() 可
+    // 阻塞等待而无需轮询。</para>
+    private readonly ManualResetEventSlim _ready = new(false);
     private bool _closed;
     private bool _faulted;
     private Exception? _fault;
@@ -22,6 +27,22 @@ public sealed class AdbStream : IDisposable
     /// <summary>Gets the remote stream identifier, or 0 until the peer acknowledges OPEN.
     /// <para>获取远端流标识；在对端确认 OPEN 之前为 0。</para></summary>
     public uint RemoteId { get; internal set; }
+
+    /// <summary>
+    /// Sets the remote id and signals that the stream is ready for writes.
+    /// <para>设置远端 ID 并触发可写信号。</para>
+    /// </summary>
+    internal void SetRemoteId(uint remoteId)
+    {
+        RemoteId = remoteId;
+        _ready.Set();
+    }
+
+    /// <summary>
+    /// Blocks until the stream is ready (OKAY received) or the timeout elapses.
+    /// <para>阻塞至流就绪（收到 OKAY）或超时。</para>
+    /// </summary>
+    internal bool WaitReady(int timeoutMs) => _ready.Wait(timeoutMs);
 
     /// <summary>Gets a value indicating whether the stream has been closed.
     /// <para>获取流是否已关闭。</para></summary>
@@ -55,6 +76,7 @@ public sealed class AdbStream : IDisposable
     internal void MarkClosed()
     {
         lock (_lock) { _closed = true; }
+        _ready.Set();
         _dataAvailable.Set();
     }
 
@@ -67,6 +89,7 @@ public sealed class AdbStream : IDisposable
             _closed = true;
         }
 
+        _ready.Set();
         _dataAvailable.Set();
     }
 

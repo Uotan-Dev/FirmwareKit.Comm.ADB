@@ -22,6 +22,10 @@ public sealed class AdbConnection : IDisposable
     // （OPEN/WRTE）调用，每条消息是两次传输写，并发写会交错字节破坏帧。必须用独立锁，
     // 因为 HandleWrite 在持有 _lock 时调用 Send。</para>
     private readonly object _sendLock = new();
+    // Signaled when the peer's CNXN banner arrives (handshake complete), so
+    // callers can wait without polling.
+    // <para>对端 CNXN 横幅到达（握手完成）时触发，调用方可无轮询等待。</para>
+    private readonly ManualResetEventSlim _peerReady = new(false);
     private uint _nextLocalId = 1;
     private bool _connected;
     private bool _disposed;
@@ -111,13 +115,13 @@ public sealed class AdbConnection : IDisposable
     {
         EnsureConnected();
 
-        // The peer routes WRTE by the remote id (arg1), known only once the OPEN's
-        // OKAY arrives; wait for it like the reference client.
-        int waited = 0;
-        while (stream.RemoteId == 0 && !stream.IsClosed && waited < 500)
+        // Block until the OPEN's OKAY arrives (RemoteId assigned) instead of
+        // polling; latency drops from ~10 ms to sub-millisecond per write.
+        // <para>阻塞等待 OPEN 的 OKAY 到达（RemoteId 赋值）而非轮询，
+        // 每次写入延迟从约 10ms 降到亚毫秒级。</para>
+        if (stream.RemoteId == 0)
         {
-            Thread.Sleep(10);
-            waited++;
+            stream.WaitReady(5000);
         }
 
         if (stream.RemoteId == 0)
@@ -232,7 +236,17 @@ public sealed class AdbConnection : IDisposable
         PeerMaxPayload = message.Arg1;
         PeerBanner = message.PayloadAsString();
         PeerFeatures = ParseFeatures(PeerBanner);
+        _peerReady.Set();
     }
+
+    /// <summary>
+    /// Blocks until the peer's CNXN banner arrives (handshake complete) or the timeout.
+    /// <para>阻塞至对端 CNXN 横幅到达（握手完成）或超时。</para>
+    /// </summary>
+    /// <param name="timeoutMs">Maximum wait in milliseconds. 最大等待毫秒数。</param>
+    /// <returns><c>true</c> if the handshake completed; <c>false</c> on timeout.
+    /// 握手完成返回 <c>true</c>；超时返回 <c>false</c>。</returns>
+    public bool WaitForPeer(int timeoutMs = 10000) => _peerReady.Wait(timeoutMs);
 
     private static IReadOnlyList<string> ParseFeatures(string? banner)
     {
@@ -262,13 +276,13 @@ public sealed class AdbConnection : IDisposable
     private void HandleOkay(AdbMessage message)
     {
         // Peer messages carry arg0 = peer's local id (our remote id), arg1 = our local id.
+        AdbStream? stream;
         lock (_lock)
         {
-            if (_streams.TryGetValue(message.Arg1, out AdbStream? stream))
-            {
-                stream.RemoteId = message.Arg0;
-            }
+            _streams.TryGetValue(message.Arg1, out stream);
         }
+        // Set outside the lock: this signals _ready which may unblock waiting writers.
+        stream?.SetRemoteId(message.Arg0);
     }
 
     private void HandleWrite(AdbMessage message)
@@ -331,6 +345,7 @@ public sealed class AdbConnection : IDisposable
 
         _transport.Dispose();
         _authentication.Dispose();
+        _peerReady.Dispose();
         GC.SuppressFinalize(this);
     }
 }

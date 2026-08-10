@@ -362,26 +362,11 @@ internal static class Program
         var connection = new AdbConnection(device, auth);
         connection.Connect();
 
-        // Wait for the CNXN handshake (or auth failure) with a bounded timeout.
-        int waited = 0;
-        while (!connection.IsConnected && waited < 100)
-        {
-            Thread.Sleep(100);
-            waited++;
-        }
-
-        if (!connection.IsConnected)
+        // Event-driven wait for the CNXN banner (auth may need a few round trips).
+        if (!connection.WaitForPeer(10000))
         {
             connection.Dispose();
             throw new InvalidOperationException("Failed to establish ADB connection with the device.");
-        }
-
-        // Wait for the peer CNXN banner to arrive (auth may need a few round trips).
-        waited = 0;
-        while (connection.PeerVersion == 0 && waited < 200)
-        {
-            Thread.Sleep(50);
-            waited++;
         }
 
         return connection;
@@ -442,14 +427,8 @@ internal static class Program
             var connection = new AdbConnection(transport, LoadTrustedAuthentication());
             connection.Connect();
 
-            int waited = 0;
-            while (connection.PeerVersion == 0 && waited < 200)
-            {
-                Thread.Sleep(50);
-                waited++;
-            }
-
-            if (connection.PeerVersion == 0)
+            // Event-driven wait for the CNXN banner (sub-millisecond vs up to 10 s polling).
+            if (!connection.WaitForPeer(10000))
             {
                 connection.Dispose();
                 throw new InvalidOperationException($"Cannot reach ADB device at {host}:{port}.");
@@ -1215,14 +1194,7 @@ internal static class Program
             using var connection = new AdbConnection(transport, LoadTrustedAuthentication());
             connection.Connect();
 
-            int waited = 0;
-            while (connection.PeerVersion == 0 && waited < 200)
-            {
-                Thread.Sleep(50);
-                waited++;
-            }
-
-            if (connection.PeerVersion == 0)
+            if (!connection.WaitForPeer(10000))
             {
                 Console.Error.WriteLine($"error: failed to connect to '{endpoint}'");
                 return 1;

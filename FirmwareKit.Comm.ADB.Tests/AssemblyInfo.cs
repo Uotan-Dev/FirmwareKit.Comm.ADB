@@ -1,5 +1,3 @@
-using Xunit;
-
 // The integration tests in this assembly drive a single physical USB device
 // (winusb allows only ONE open handle per ADB interface) and spawn child adb
 // processes that also claim that interface. xUnit runs different test classes
