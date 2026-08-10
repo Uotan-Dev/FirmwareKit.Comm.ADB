@@ -30,4 +30,8 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="TestData\adb_commands.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

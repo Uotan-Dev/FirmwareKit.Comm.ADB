@@ -23,40 +23,6 @@ internal static class Program
 
     private static bool _debug;
 
-    // CommandLineParser's generic ParseArguments<T1..T16> caps at 16 verbs;
-    // use the Type[] overload and dispatch on the concrete verb type.
-    // <para>CommandLineParser 的泛型 ParseArguments&lt;T1..T16&gt; 上限 16 个动词；
-    // 使用 Type[] 重载并按具体动词类型分发。</para>
-    private static readonly Type[] VerbTypes =
-    [
-        typeof(Options.DevicesVerb),
-        typeof(Options.GetStateVerb),
-        typeof(Options.GetSerialNoVerb),
-        typeof(Options.GetDevPathVerb),
-        typeof(Options.ShellVerb),
-        typeof(Options.PushVerb),
-        typeof(Options.PullVerb),
-        typeof(Options.InstallVerb),
-        typeof(Options.UninstallVerb),
-        typeof(Options.RebootVerb),
-        typeof(Options.RebootBootloaderVerb),
-        typeof(Options.RemountVerb),
-        typeof(Options.RootVerb),
-        typeof(Options.UnrootVerb),
-        typeof(Options.UsbVerb),
-        typeof(Options.TcpIpVerb),
-        typeof(Options.LogcatVerb),
-        typeof(Options.BugreportVerb),
-        typeof(Options.FeaturesVerb),
-        typeof(Options.WaitForDeviceVerb),
-        typeof(Options.HelpVerb),
-        typeof(Options.ReverseVerb),
-        typeof(Options.ConnectVerb),
-        typeof(Options.DisconnectVerb),
-        typeof(Options.MdnsVerb),
-        typeof(Options.VersionVerb),
-    ];
-
     private static int Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
@@ -67,15 +33,17 @@ internal static class Program
         // <para>官方 adb 语法：全局选项位于命令动词之前（`adb -s SERIAL shell ...`）。
         // 从参数列表前端消费它们，使 `-s`、`-H`、`-P` 等与官方 adb 完全一致地被接受。</para>
         var globals = new Options.GlobalOptions();
-        switch (ParseGlobalOptions(args, globals, out int commandIndex))
+        switch (CliParser.ParseGlobalOptions(args, globals, out int commandIndex, out string? globalError))
         {
-            case GlobalParseResult.Help:
+            case CliParser.GlobalParseResult.Help:
                 Usage(Console.Error);
                 return 0;
-            case GlobalParseResult.Version:
+            case CliParser.GlobalParseResult.Version:
                 PrintVersion(Console.Out);
                 return 0;
-            case GlobalParseResult.Error:
+            case CliParser.GlobalParseResult.Error:
+                Console.Error.WriteLine($"adb: {globalError}");
+                Usage(Console.Error);
                 return 1;
         }
 
@@ -104,7 +72,7 @@ internal static class Program
         // 选项。在命令起始处插入 `--` 分隔符，使 CommandLineParser 将其后内容
         // 作为位置值。</para>
         string[] parseArgs = command.Equals("shell", StringComparison.OrdinalIgnoreCase)
-            ? PrepareShellArgs(args[commandIndex..])
+            ? CliParser.PrepareShellArgs(args[commandIndex..])
             : args[commandIndex..];
 
         var parser = new Parser(settings =>
@@ -119,146 +87,15 @@ internal static class Program
             settings.EnableDashDash = true; // `cmd -- -arg` passes dash-args as values
         });
 
-        ParserResult<object> result = parser.ParseArguments(parseArgs, VerbTypes);
+        ParserResult<object> result = parser.ParseArguments(parseArgs, CliParser.VerbTypes);
         if (result.Tag == ParserResultType.Parsed)
         {
             var opts = ((Parsed<object>)result).Value;
-            ApplyGlobals(opts, globals);
+            CliParser.ApplyGlobals(opts, globals);
             return Dispatch(opts);
         }
 
         return HandleParseErrors(result.Errors);
-    }
-
-    private enum GlobalParseResult
-    {
-        Continue,
-        Help,
-        Version,
-        Error,
-    }
-
-    /// <summary>
-    /// Parses the Google-adb style global options that appear before the command
-    /// verb: <c>-a -d -e -s -t -H -P -L --one-device --exit-on-disconnect</c>.
-    /// Options the CLI does not act on (<c>-a -t -L --exit-on-disconnect</c>) are
-    /// consumed for binary compatibility. Returns the index of the first
-    /// non-option token (the command verb) via <paramref name="commandIndex"/>.
-    /// <para>解析命令动词之前谷歌 adb 风格的全局选项：<c>-a -d -e -s -t -H -P -L
-    /// --one-device --exit-on-disconnect</c>。CLI 不生效的选项（<c>-a -t -L
-    /// --exit-on-disconnect</c>）为二进制兼容而消费。通过
-    /// <paramref name="commandIndex"/> 返回第一个非选项令牌（命令动词）的下标。</para>
-    /// </summary>
-    private static GlobalParseResult ParseGlobalOptions(string[] args, Options.GlobalOptions globals, out int commandIndex)
-    {
-        commandIndex = 0;
-        int i = 0;
-        while (i < args.Length)
-        {
-            string arg = args[i];
-            if (arg.Length == 0 || arg[0] != '-' || arg == "--")
-            {
-                break;
-            }
-
-            switch (arg)
-            {
-                case "-a": // listen on all interfaces: accepted for compatibility
-                case "--exit-on-disconnect": // accepted for compatibility
-                    i++;
-                    break;
-                case "-d":
-                    globals.UseUsb = true;
-                    i++;
-                    break;
-                case "-e":
-                    globals.UseTcp = true;
-                    i++;
-                    break;
-                case "-s":
-                case "--serial":
-                case "--one-device":
-                    if (i + 1 >= args.Length)
-                    {
-                        return MissingArgument(arg);
-                    }
-                    globals.Serial = args[i + 1];
-                    i += 2;
-                    break;
-                case "-t": // transport id: accepted for compatibility
-                case "-L": // listen socket: accepted for compatibility
-                    if (i + 1 >= args.Length)
-                    {
-                        return MissingArgument(arg);
-                    }
-                    i += 2;
-                    break;
-                case "-H":
-                    if (i + 1 >= args.Length)
-                    {
-                        return MissingArgument(arg);
-                    }
-                    globals.Host = args[i + 1];
-                    i += 2;
-                    break;
-                case "-P":
-                    if (i + 1 >= args.Length)
-                    {
-                        return MissingArgument(arg);
-                    }
-                    if (!int.TryParse(args[i + 1], out int port))
-                    {
-                        Console.Error.WriteLine($"adb: invalid port '{args[i + 1]}'");
-                        Usage(Console.Error);
-                        return GlobalParseResult.Error;
-                    }
-                    globals.Port = port;
-                    i += 2;
-                    break;
-                case "--version":
-                    return GlobalParseResult.Version;
-                case "--help":
-                case "-h":
-                case "-?":
-                    return GlobalParseResult.Help;
-                default:
-                    Console.Error.WriteLine($"unknown option {arg}");
-                    Usage(Console.Error);
-                    return GlobalParseResult.Error;
-            }
-        }
-
-        commandIndex = i;
-        return GlobalParseResult.Continue;
-    }
-
-    private static GlobalParseResult MissingArgument(string option)
-    {
-        Console.Error.WriteLine($"adb: missing argument for {option}");
-        Usage(Console.Error);
-        return GlobalParseResult.Error;
-    }
-
-    /// <summary>
-    /// Copies the global options parsed before the verb onto the verb's typed
-    /// options. Verb-level values (parsed by CommandLineParser after the verb)
-    /// win over pre-verb globals.
-    /// <para>把动词之前解析的全局选项复制到动词的强类型选项上。动词级值
-    /// （动词之后由 CommandLineParser 解析）优先于动词前的全局值。</para>
-    /// </summary>
-    private static void ApplyGlobals(object opts, Options.GlobalOptions globals)
-    {
-        if (opts is not Options.GlobalOptions target)
-        {
-            return;
-        }
-
-        target.Serial ??= globals.Serial;
-        target.Host ??= globals.Host;
-        target.Port ??= globals.Port;
-        target.UseUsb |= globals.UseUsb;
-        target.UseTcp |= globals.UseTcp;
-        target.Debug |= globals.Debug;
     }
 
     private static int Dispatch(object opts) => opts switch
@@ -409,18 +246,28 @@ internal static class Program
         var devices = UsbManager.GetAllDevices();
 
         Console.WriteLine("List of devices attached");
+        // Official adb assigns a unique, monotonically increasing transport_id to
+        // each attached device (it is not the USB bus number). Mirror that by
+        // numbering devices in enumeration order, then continuing the sequence for
+        // a saved TCP endpoint.
+        // <para>官方 adb 为每个已连接设备分配唯一、单调递增的 transport_id（并非 USB
+        // 总线号）。按枚举顺序编号，并为保存的 TCP 端点续接序号。</para>
+        int transportId = 1;
         foreach (var device in devices)
         {
             string serial = string.IsNullOrEmpty(device.SerialNumber) ? "????????????" : device.SerialNumber;
             if (opts.LongList)
             {
-                Console.WriteLine($"{serial,-22} device product:{GetProduct(device)} model:{GetModel(device)} device:{GetDevice(device)} transport_id:{GetTransportId(device)}");
+                Console.WriteLine($"{serial,-22} device product:{GetProduct(device)} model:{GetModel(device)} device:{GetDevice(device)} transport_id:{transportId}");
             }
             else
             {
-                Console.WriteLine($"{serial,-22} device");
+                // Official adb uses a single tab between serial and state.
+                // <para>官方 adb 在序列号与状态之间使用单个制表符。</para>
+                Console.WriteLine($"{serial}\tdevice");
             }
 
+            transportId++;
             device?.Dispose();
         }
 
@@ -433,11 +280,11 @@ internal static class Program
             string state = TryConnectQuickly(saved) ? "device" : "offline";
             if (opts.LongList)
             {
-                Console.WriteLine($"{saved,-22} {state} product:unknown model:unknown device:unknown transport_id:1");
+                Console.WriteLine($"{saved,-22} {state} product:unknown model:unknown device:unknown transport_id:{transportId}");
             }
             else
             {
-                Console.WriteLine($"{saved,-22} {state}");
+                Console.WriteLine($"{saved}\t{state}");
             }
         }
 
@@ -447,7 +294,6 @@ internal static class Program
     private static string GetProduct(UsbDevice device) => "usb";
     private static string GetModel(UsbDevice device) => string.IsNullOrEmpty(device.SerialNumber) ? "unknown" : device.SerialNumber;
     private static string GetDevice(UsbDevice device) => "usb";
-    private static string GetTransportId(UsbDevice device) => "1";
 
     // ---- device helpers -----------------------------------------------------
 
@@ -783,8 +629,16 @@ internal static class Program
             using var connection = OpenConnection(opts, out device);
             if (connection is null) return 1;
             using var sync = new AdbSyncClient(connection);
+
+            long bytes = new FileInfo(opts.Local).Length;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             sync.Push(opts.Local, opts.Remote);
-            Console.WriteLine($"{opts.Local}: 1 file pushed.");
+            sw.Stop();
+
+            // Official adb format:
+            //   <file>: 1 file pushed, 0 skipped. 9.4 MB/s (8832 bytes in 0.001s)
+            // <para>官方 adb 格式：<file>: 1 file pushed, 0 skipped. 9.4 MB/s (8832 bytes in 0.001s)</para>
+            Console.WriteLine($"{opts.Local}: 1 file pushed, 0 skipped. {FormatRate(bytes, sw.Elapsed.TotalSeconds)} ({bytes} bytes in {sw.Elapsed.TotalSeconds:F3}s)");
             return 0;
         }
         catch (Exception ex)
@@ -807,8 +661,16 @@ internal static class Program
             if (connection is null) return 1;
             string local = opts.Local ?? Path.GetFileName(opts.Remote.TrimEnd('/'));
             using var sync = new AdbSyncClient(connection);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             sync.Pull(opts.Remote, local);
-            Console.WriteLine($"{local}: 1 file pulled.");
+            sw.Stop();
+            long bytes = new FileInfo(local).Length;
+
+            // Official adb format:
+            //   <file>: 1 file pulled, 0 skipped. 9.4 MB/s (8832 bytes in 0.001s)
+            // <para>官方 adb 格式：<file>: 1 file pulled, 0 skipped. 9.4 MB/s (...)</para>
+            Console.WriteLine($"{local}: 1 file pulled, 0 skipped. {FormatRate(bytes, sw.Elapsed.TotalSeconds)} ({bytes} bytes in {sw.Elapsed.TotalSeconds:F3}s)");
             return 0;
         }
         catch (Exception ex)
@@ -820,6 +682,27 @@ internal static class Program
         {
             device?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Formats a transfer rate the way the official adb does (e.g. "9.4 MB/s").
+    /// <para>按官方 adb 的方式格式化传输速率（如 "9.4 MB/s"）。</para>
+    /// </summary>
+    private static string FormatRate(long bytes, double seconds)
+    {
+        if (seconds <= 0)
+        {
+            seconds = 0.001;
+        }
+
+        double rate = bytes / seconds;
+        return rate switch
+        {
+            >= 1024.0 * 1024.0 * 1024.0 => $"{rate / (1024.0 * 1024.0 * 1024.0):F1} GB/s",
+            >= 1024.0 * 1024.0 => $"{rate / (1024.0 * 1024.0):F1} MB/s",
+            >= 1024.0 => $"{rate / 1024.0:F1} KB/s",
+            _ => $"{rate:F1} B/s",
+        };
     }
 
     // ---- install / uninstall ----------------------------------------------------
@@ -1516,6 +1399,7 @@ internal static class Program
         writer.WriteLine($"Android Debug Bridge version {ProtocolVersionString}");
         writer.WriteLine($"Version {VersionString}");
         writer.WriteLine($"Installed as {Environment.ProcessPath ?? "adb"}");
+        writer.WriteLine($"Running on {Environment.OSVersion.VersionString}");
     }
 
     /// <summary>

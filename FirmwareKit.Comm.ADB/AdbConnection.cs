@@ -14,6 +14,17 @@ public sealed class AdbConnection : IDisposable
     private readonly AdbAuthentication _authentication;
     private readonly Dictionary<uint, AdbStream> _streams = new();
     private readonly object _lock = new();
+    // Dedicated write lock: Send() is invoked both from the message-loop thread
+    // (OKAY/CLSE replies) and from caller threads (OPEN/WRTE), and each message
+    // is TWO transport writes (header, then payload). Without serializing them,
+    // concurrent streams interleave bytes on the wire and corrupt framing. A
+    // separate lock (not _lock) is required because HandleWrite holds _lock while
+    // calling Send.
+    // <para>专用写锁：Send() 既从消息循环线程（OKAY/CLSE 应答）调用，也从调用方
+    // 线程（OPEN/WRTE）调用，而每条消息是两次传输写（头部、随后负载）。若不串行化，
+    // 并发流会在链路上交错字节并破坏帧结构。必须使用独立锁（不能用 _lock），因为
+    // HandleWrite 在持有 _lock 时调用 Send。</para>
+    private readonly object _sendLock = new();
     private uint _nextLocalId = 1;
     private bool _connected;
     private bool _disposed;
@@ -168,12 +179,20 @@ public sealed class AdbConnection : IDisposable
     /// </summary>
     private void Send(AdbMessage message)
     {
-        byte[] header = AdbMessaging.SerializeHeader(message);
-        _transport.Write(header, header.Length);
-
-        if (message.Payload is { Length: > 0 } payload)
+        // Serialize the header + payload as one atomic pair of transport writes.
+        // The message loop (OKAY/CLSE replies) and caller threads (OPEN/WRTE) all
+        // converge here; see _sendLock.
+        // <para>将头部 + 负载作为一对原子的传输写串行化。消息循环（OKAY/CLSE 应答）
+        // 与调用方线程（OPEN/WRTE）都汇聚于此；见 _sendLock。</para>
+        lock (_sendLock)
         {
-            _transport.Write(payload, payload.Length);
+            byte[] header = AdbMessaging.SerializeHeader(message);
+            _transport.Write(header, header.Length);
+
+            if (message.Payload is { Length: > 0 } payload)
+            {
+                _transport.Write(payload, payload.Length);
+            }
         }
     }
 

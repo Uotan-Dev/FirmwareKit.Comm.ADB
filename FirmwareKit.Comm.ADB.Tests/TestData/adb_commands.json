@@ -1,0 +1,209 @@
+[
+  {
+    "command": "version",
+    "verb": "version",
+    "outputContains": "Android Debug Bridge version"
+  },
+  {
+    "command": "devices",
+    "verb": "devices",
+    "outputContains": "List of devices attached"
+  },
+  {
+    "command": "devices -l",
+    "verb": "devices",
+    "longList": true
+  },
+  {
+    "command": "-s 6b24c48f shell getprop ro.boot.slot_suffix",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "getprop ro.boot.slot_suffix",
+    "outputContains": "_a"
+  },
+  {
+    "command": "-s 6b24c48f shell getprop ro.build.version.release",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "getprop ro.build.version.release",
+    "outputContains": "9"
+  },
+  {
+    "command": "-s 6b24c48f shell getprop ro.build.version.sdk",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "getprop ro.build.version.sdk"
+  },
+  {
+    "command": "-s 6b24c48f shell wm size",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "wm size",
+    "outputContains": "Physical size:"
+  },
+  {
+    "command": "-s 6b24c48f shell wm density",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "wm density",
+    "outputContains": "Physical density:"
+  },
+  {
+    "command": "-s 6b24c48f shell cat /sys/devices/soc0/serial_number",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "cat /sys/devices/soc0/serial_number"
+  },
+  {
+    "command": "-s 6b24c48f shell getprop ro.vndk.version",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "getprop ro.vndk.version"
+  },
+  {
+    "command": "-s 6b24c48f shell getprop ro.board.platform",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "getprop ro.board.platform",
+    "outputContains": "sm6150"
+  },
+  {
+    "command": "-s 6b24c48f shell getprop ro.product.brand",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "getprop ro.product.brand"
+  },
+  {
+    "command": "-s 6b24c48f shell getprop ro.product.model",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "getprop ro.product.model"
+  },
+  {
+    "command": "-s 6b24c48f shell getprop ro.product.cpu.abi",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "getprop ro.product.cpu.abi",
+    "outputContains": "arm64-v8a"
+  },
+  {
+    "command": "-s 6b24c48f shell getprop ro.product.device",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "getprop ro.product.device",
+    "outputContains": "sm6150"
+  },
+  {
+    "command": "-s 6b24c48f shell cat /proc/cpuinfo | grep Hardware",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "cat /proc/cpuinfo | grep Hardware",
+    "outputContains": "Hardware"
+  },
+  {
+    "command": "-s 6b24c48f shell uname -r",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "uname -r",
+    "outputContains": "4.14"
+  },
+  {
+    "command": "-s 6b24c48f shell cat /proc/uptime",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "cat /proc/uptime"
+  },
+  {
+    "command": "-s 6b24c48f shell dumpsys battery",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "dumpsys battery",
+    "outputContains": "Battery"
+  },
+  {
+    "command": "-s 6b24c48f shell cat /proc/meminfo | grep Mem",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "cat /proc/meminfo | grep Mem",
+    "outputContains": "MemTotal"
+  },
+  {
+    "command": "-s 6b24c48f shell df /storage/emulated",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "df /storage/emulated",
+    "outputContains": "Filesystem"
+  },
+  {
+    "command": "-s 6b24c48f shell df /data",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "df /data",
+    "outputContains": "Filesystem"
+  },
+  {
+    "command": "-s 6b24c48f push \"D:\\Source Code\\UotanToolboxNT\\UotanToolbox\\bin\\Debug\\net10.0\\Push\\list_apps\" /data/local/tmp/",
+    "verb": "push",
+    "serial": "6b24c48f",
+    "pushLocal": "D:\\Source Code\\UotanToolboxNT\\UotanToolbox\\bin\\Debug\\net10.0\\Push\\list_apps",
+    "pushRemote": "/data/local/tmp/",
+    "outputContains": "1 file pushed"
+  },
+  {
+    "command": "-s 6b24c48f shell /data/local/tmp/list_apps",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "/data/local/tmp/list_apps"
+  },
+  {
+    "command": "-s 6b24c48f shell pm list packages -3",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "pm list packages -3",
+    "outputContains": "package:"
+  },
+  {
+    "command": "-s 6b24c48f shell pm list packages",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "pm list packages",
+    "outputContains": "package:"
+  },
+  {
+    "command": "-s 6b24c48f shell ls -la \"/sdcard/\"",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "ls -la /sdcard/",
+    "outputContains": "total"
+  },
+  {
+    "command": "-s 6b24c48f shell settings get system screen_off_timeout",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "settings get system screen_off_timeout"
+  },
+  {
+    "command": "-s 6b24c48f shell settings get system font_scale",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "settings get system font_scale"
+  },
+  {
+    "command": "-s 6b24c48f shell settings get global window_animation_scale",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "settings get global window_animation_scale"
+  },
+  {
+    "command": "-s 6b24c48f shell settings get global transition_animation_scale",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "settings get global transition_animation_scale"
+  },
+  {
+    "command": "-s 6b24c48f shell settings get global animator_duration_scale",
+    "verb": "shell",
+    "serial": "6b24c48f",
+    "remoteCommand": "settings get global animator_duration_scale"
+  }
+]
