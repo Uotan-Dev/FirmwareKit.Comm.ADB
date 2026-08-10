@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="FirmwareKit.Comm.ADB.Cli/FirmwareKit.Comm.ADB.Cli.csproj" />
+  <Project Path="FirmwareKit.Comm.ADB.Tests/FirmwareKit.Comm.ADB.Tests.csproj" />
+  <Project Path="FirmwareKit.Comm.ADB/FirmwareKit.Comm.ADB.csproj" />
+</Solution>
