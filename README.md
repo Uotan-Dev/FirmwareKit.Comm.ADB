@@ -56,9 +56,23 @@ capabilities:
 
 | Project | Description |
 |---------|-------------|
-| FirmwareKit.Comm.ADB | Core ADB protocol library (netstandard2.0+). |
+| FirmwareKit.Comm.ADB | Core ADB protocol library (netstandard2.0 / net8.0 / net10.0). |
 | FirmwareKit.Comm.ADB.Cli | `adb`-compatible command-line tool. |
 | FirmwareKit.Comm.ADB.Tests | Unit tests for the protocol core. |
+
+## USB backend selection
+
+The library uses the **platform native backend by default** (WinUSB on Windows,
+usbfs on Linux, IOKit on macOS). The libusb-dotnet backend is available as an
+explicit opt-in — there is no automatic fallback:
+
+- Library: set `UsbManager.ForceLibUsb = true` to force libusb.
+- CLI: pass `--libusb` to use the libusb backend; without it, the native backend
+  is used.
+
+<para>库默认使用平台原生后端（Windows 用 WinUSB、Linux 用 usbfs、macOS 用
+IOKit）。libusb-dotnet 后端作为显式选项保留，不自动回退：库侧设置
+<see cref="UsbManager.ForceLibUsb"/> 为 true，CLI 侧传 <c>--libusb</c>。</para>
 
 ## Quick Start
 
@@ -86,7 +100,8 @@ Console.WriteLine(System.Text.Encoding.UTF8.GetString(result.Stdout));
 ## CLI
 
 ```
-adb devices          # list attached devices
+adb devices          # list attached devices (native USB backend by default)
+adb --libusb devices # list devices using the libusb backend instead
 adb shell <cmd>      # run a remote command
 adb push <l> <r>     # push a file
 adb pull <r> [l]     # pull a file

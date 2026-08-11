@@ -9,24 +9,39 @@ namespace FirmwareKit.Comm.ADB.Services;
 public static class SyncIds
 {
     // v1 (4-byte) ids.
+    /// <summary>v1 STAT request id. v1 STAT 请求标识。</summary>
     public const string Stat = "STAT";
+    /// <summary>v1 LIST request id. v1 LIST 请求标识。</summary>
     public const string List = "LIST";
+    /// <summary>v1 DENT (directory entry) response id. v1 DENT（目录条目）响应标识。</summary>
     public const string Dent = "DENT";
+    /// <summary>v1 RECV (pull) request id. v1 RECV（拉取）请求标识。</summary>
     public const string Recv = "RECV";
+    /// <summary>v1 SEND (push) request id. v1 SEND（推送）请求标识。</summary>
     public const string Send = "SEND";
+    /// <summary>v1 DATA (payload chunk) id. v1 DATA（负载分块）标识。</summary>
     public const string Data = "DATA";
+    /// <summary>v1 DONE (transfer complete) id. v1 DONE（传输完成）标识。</summary>
     public const string Done = "DONE";
+    /// <summary>v1 QUIT (close sync service) id. v1 QUIT（关闭 sync 服务）标识。</summary>
     public const string Quit = "QUIT";
+    /// <summary>v1 OKAY (success) status id. v1 OKAY（成功）状态标识。</summary>
     public const string Okay = "OKAY";
+    /// <summary>v1 FAIL status id. v1 FAIL 状态标识。</summary>
     public const string Fail = "FAIL";
 
     // v2 (sendrecv_v2) ids (MKID('S','T','A','2') ...). The library speaks v1
     // framing today; these are reserved for a future v2 implementation.
     // <para>v2（sendrecv_v2）标识。库当前只讲 v1 帧格式，保留给未来 v2 实现。</para>
+    /// <summary>v2 STAT id. v2 STAT 标识。</summary>
     public const string StatV2 = "STA2";
+    /// <summary>v2 LIST id. v2 LIST 标识。</summary>
     public const string ListV2 = "LIS2";
+    /// <summary>v2 DENT id. v2 DENT 标识。</summary>
     public const string DentV2 = "DNT2";
+    /// <summary>v2 RECV id. v2 RECV 标识。</summary>
     public const string RecvV2 = "RCV2";
+    /// <summary>v2 SEND id. v2 SEND 标识。</summary>
     public const string SendV2 = "SND2";
 }
 

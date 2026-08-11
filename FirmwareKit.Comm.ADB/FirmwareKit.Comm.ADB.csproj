@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <!-- Maintained targets: current LTS (net10.0), previous LTS (net8.0), and
+         netstandard2.0 for .NET Framework consumers. AOT publish narrows to
+         net8.0/net10.0. -->
     <TargetFrameworks>netstandard2.0;net8.0;net10.0</TargetFrameworks>
     <TargetFrameworks Condition="'$(PublishAot)' == 'true'">net8.0;net10.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
@@ -9,19 +12,22 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsAotCompatible>true</IsAotCompatible>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Authors>ZZi_Cai</Authors>
-    <Description>A high-performance .NET implementation of the Android Debug Bridge (ADB) protocol over USB, strictly aligned with AOSP logic. Part of the FirmwareKit ecosystem.</Description>
+    <Title>FirmwareKit.Comm.ADB</Title>
+    <Description>A high-performance .NET implementation of the Android Debug Bridge (ADB) protocol over USB and TCP, strictly aligned with AOSP logic. Part of the FirmwareKit ecosystem: direct-write to adbd (no client/server split), with shell v2, sync (file transfer), reverse, mDNS discovery, and an adb-compatible CLI.</Description>
     <PackageProjectUrl>https://github.com/Uotan-Dev/FirmwareKit.Comm.ADB</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Uotan-Dev/FirmwareKit.Comm.ADB</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageTags>adb;android;firmware;debug;usb;shell;sync</PackageTags>
+    <PackageTags>adb;android;firmware;debug;usb;shell;sync;mdns</PackageTags>
     <Copyright>Copyright (c) 2026 ZZi_Cai</Copyright>
-    <Version>0.1.0</Version>
+    <Version>1.0.0</Version>
     <PackageId>FirmwareKit.Comm.ADB</PackageId>
     <Product>FirmwareKit.Comm.ADB</Product>
   </PropertyGroup>
@@ -33,6 +39,7 @@
   <ItemGroup>
     <PackageReference Include="FirmwareKit.Comm" Version="1.2.0" />
     <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.301" PrivateAssets="All" />
   </ItemGroup>
 
   <ItemGroup>

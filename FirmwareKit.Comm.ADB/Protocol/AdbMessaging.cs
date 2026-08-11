@@ -106,22 +106,34 @@ public static class AdbMessaging
         }
     }
 
+    /// <summary>Builds the CNXN connect message with this client's version, max payload
+    /// and feature banner. 构建 CNXN 连接消息（含版本、最大负载与特性横幅）。</summary>
     public static AdbMessage BuildConnect() =>
         new(AdbCommand.Cnxn, AdbProtocol.Version, AdbProtocol.MaxPayload,
             Encoding.UTF8.GetBytes(AdbProtocol.BuildConnectPayload()));
 
+    /// <summary>Builds an AUTH message carrying the given payload.
+    /// 构建携带指定负载的 AUTH 消息。</summary>
     public static AdbMessage BuildAuth(AdbAuthType type, byte[] data) =>
         new(AdbCommand.Auth, (uint)type, 0, data);
 
+    /// <summary>Builds an OPEN message to start a service stream.
+    /// 构建打开服务流的 OPEN 消息。</summary>
     public static AdbMessage BuildOpen(uint localId, string destination) =>
         new(AdbCommand.Open, localId, 0, Encoding.UTF8.GetBytes($"{destination}\0"));
 
+    /// <summary>Builds a WRTE message carrying payload bytes to the peer stream.
+    /// 构建向对端流发送负载字节的 WRTE 消息。</summary>
     public static AdbMessage BuildWrite(uint localId, uint remoteId, byte[] data) =>
         new(AdbCommand.Wrte, localId, remoteId, data);
 
+    /// <summary>Builds a CLSE message to close a stream.
+    /// 构建关闭流的 CLSE 消息。</summary>
     public static AdbMessage BuildClose(uint localId, uint remoteId) =>
         new(AdbCommand.Clse, localId, remoteId);
 
+    /// <summary>Builds an OKAY acknowledgement for a stream.
+    /// 构建流的 OKAY 确认消息。</summary>
     public static AdbMessage BuildOkay(uint localId, uint remoteId) =>
         new(AdbCommand.Okay, localId, remoteId);
 }
