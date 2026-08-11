@@ -106,6 +106,10 @@ internal static class CliParser
                     globals.UseTcp = true;
                     i++;
                     break;
+                case "--libusb":
+                    globals.UseLibUsb = true;
+                    i++;
+                    break;
                 case "-s":
                 case "--serial":
                 case "--one-device":
@@ -332,6 +336,7 @@ internal static class CliParser
         target.Port ??= globals.Port;
         target.UseUsb |= globals.UseUsb;
         target.UseTcp |= globals.UseTcp;
+        target.UseLibUsb |= globals.UseLibUsb;
         target.Debug |= globals.Debug;
     }
 }

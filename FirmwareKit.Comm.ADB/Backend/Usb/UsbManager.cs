@@ -17,15 +17,18 @@ public static class UsbManager
     private const byte AdbInterfaceProtocol = 0x01;
 
     /// <summary>
-    /// Gets or sets whether to force the use of libusb-dotnet instead of native USB APIs.
-    /// Defaults to <c>true</c>: the native (SetupAPI) enumeration on Windows does not
-    /// see ADB interfaces driven by winusb.sys, while libusb enumerates them reliably
-    /// on every platform (verified against a winUSB ADB device).
-    /// <para>获取或设置是否强制使用 libusb-dotnet 而非原生 USB API。
-    /// 默认为 <c>true</c>：Windows 上原生（SetupAPI）枚举看不到 winusb.sys 驱动的
-    /// ADB 接口，而 libusb 在各平台都能可靠枚举它们（已在 winUSB ADB 设备上验证）。</para>
+    /// Gets or sets whether to force the use of libusb-dotnet instead of the platform
+    /// native backend. Defaults to <c>false</c>: the platform backend (WinUSB on
+    /// Windows, usbfs on Linux, IOKit on macOS) is the default; libusb remains an
+    /// opt-in alternative. There is NO automatic fallback — if the chosen backend
+    /// cannot enumerate/open a device, the error surfaces to the caller instead of
+    /// silently switching.
+    /// <para>获取或设置是否强制使用 libusb-dotnet 而非平台原生后端。默认为
+    /// <c>false</c>：平台后端（Windows 用 WinUSB、Linux 用 usbfs、macOS 用 IOKit）
+    /// 是默认；libusb 作为可选的备选。不提供自动回退——所选后端无法枚举/打开设备时
+    /// 错误会直接抛给调用方，而非静默切换。</para>
     /// </summary>
-    public static bool ForceLibUsb { get; set; } = true;
+    public static bool ForceLibUsb { get; set; } = false;
 
     private static readonly global::FirmwareKit.Comm.IFirmwareKitComm Comm = new global::FirmwareKit.Comm.FirmwareKitComm();
 

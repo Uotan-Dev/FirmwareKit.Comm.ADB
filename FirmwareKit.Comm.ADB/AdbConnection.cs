@@ -166,8 +166,6 @@ public sealed class AdbConnection : IDisposable
         if (payloadLength > 0)
         {
             payload = _transport.Read((int)payloadLength);
-            // Modern adbd sends data_check=0 even for non-empty payloads and the
-            // reference client accepts that; only verify when a checksum is present.
             if (payloadCrc != 0)
             {
                 AdbMessaging.VerifyCrc(payload, payloadCrc);

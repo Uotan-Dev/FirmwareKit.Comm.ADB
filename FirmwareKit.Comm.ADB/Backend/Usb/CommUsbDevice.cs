@@ -14,10 +14,18 @@ public sealed class CommUsbDevice : UsbDevice
     private readonly bool _forceLibUsb;
     private IUsbDeviceSession? _session;
 
-    // Set by Dispose() so a blocked message-loop read returns promptly instead of
-    // waiting out the 30 s bulk-read timeout. <para>由 Dispose() 置位，使被阻塞的
-    // 消息循环读取能快速返回，而不必等待 30 秒读超时。</para>
-    private volatile bool _disposed;
+    // Cancels the pending overlapped read when the device is disposed, so the
+    // message loop unblocks immediately instead of polling a disposed flag.
+    // <para>设备释放时取消挂起的重叠读取，使消息循环立即解除阻塞，而非轮询
+    // 释放标志。</para>
+    private readonly CancellationTokenSource _readCts = new();
+
+    // Guards against double-dispose: AdbConnection.Dispose() releases the
+    // transport (this device), and callers may also dispose the device they
+    // opened — Cancel()/Dispose() on an already-disposed CTS throws.
+    // <para>防双重释放：AdbConnection.Dispose() 会释放传输层（本设备），调用方
+    // 也可能再次释放自己打开的设备——对已释放的 CTS 调用 Cancel()/Dispose() 会抛异常。</para>
+    private bool _disposed;
 
     /// <summary>
     /// Initializes a new CommUsbDevice with the specified communication interface,
@@ -158,68 +166,39 @@ public sealed class CommUsbDevice : UsbDevice
     /// <summary>
     /// Reads data from the USB device with the specified maximum length.
     /// <para>从 USB 设备读取指定最大长度的数据。</para>
-    /// Uses the exact-read loop from FirmwareKit.Comm 1.1.0 so short bulk packets are
-    /// accumulated until the requested byte count is reached (ADB framing depends on
-    /// complete 24-byte headers and exact-length payloads).
-    /// <para>使用 FirmwareKit.Comm 1.1.0 的精确读取循环，短 bulk 包会持续累积直至
-    /// 达到请求的字节数（ADB 帧依赖完整的 24 字节头部与定长负载）。</para>
+    /// Uses the async exact-read path so WinUSB backends run native overlapped I/O
+    /// (data arrival wakes the reader immediately, no polling slices), while other
+    /// backends fall back to thread-pool execution — both are functionally correct.
+    /// <para>使用异步精确读取路径：WinUSB 后端走原生重叠 I/O（数据到达立即唤醒，
+    /// 无轮询切片），其他后端回退到线程池执行——两者功能均正确。</para>
     /// </summary>
     public override byte[] Read(int length)
     {
         EnsureSession();
         if (length <= 0) return Array.Empty<byte>();
 
-        // Read in short timeout slices and poll the disposed flag so the message
-        // loop (blocked waiting for the next ADB message) returns promptly when the
-        // connection/session is disposed. A single 30 s blocking bulk read would
-        // otherwise keep ReleaseInterface/Close busy for the full timeout, making
-        // Dispose hang and tripping the test's 30 s bound. This mirrors the
-        // reference client, which drives reads through cancellable async BeginRead.
-        // <para>以短超时切片读取并轮询 disposed 标志，使消息循环（阻塞等待下一条
-        // ADB 消息）在连接/会话释放时能快速返回。单次 30 秒阻塞 bulk 读会让
-        // ReleaseInterface/Close 卡满整个超时时长，导致 Dispose 挂起并触发测试
-        // 的 30 秒上限。这与参考客户端用可取消的异步 BeginRead 驱动读取一致。</para>
-        var buffer = new byte[length];
-        int count = 0;
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        const int sliceMs = 200;
-
-        while (count < length)
+        try
         {
-            if (_disposed)
-            {
-                return Array.Empty<byte>();
-            }
-
-            int read = ReadExactInto(buffer, count, length - count, sliceMs);
-            if (read > 0)
-            {
-                count += read;
-                continue;
-            }
-
-            // No data in this slice. If the overall I/O timeout has elapsed without
-            // receiving the requested bytes, return what we have (empty for the
-            // header read, which the message loop treats as a read failure).
-            if (stopwatch.ElapsedMilliseconds >= DefaultIoTimeoutMs)
-            {
-                break;
-            }
+            // Overlapped read: completes the moment the USB transfer finishes instead
+            // of polling a 5 ms slice. Cancellation (Dispose) unblocks immediately.
+            // <para>重叠读取：USB 传输完成即刻返回，而非轮询 5ms 切片。取消（Dispose）
+            // 可立即解除阻塞。</para>
+            return _session!.AsAsync()
+                .ReadExactAsync(length, DefaultIoTimeoutMs, _readCts.Token)
+                .GetAwaiter().GetResult();
         }
-
-        if (count == 0)
+        catch (OperationCanceledException)
+        {
+            return Array.Empty<byte>(); // disposed: message loop exits promptly
+        }
+        catch (UsbDeviceHandleClosedException)
         {
             return Array.Empty<byte>();
         }
-
-        if (count == length)
+        catch (UsbDeviceDisconnectedException)
         {
-            return buffer;
+            return Array.Empty<byte>();
         }
-
-        var partial = new byte[count];
-        Buffer.BlockCopy(buffer, 0, partial, 0, count);
-        return partial;
     }
 
     /// <summary>
@@ -311,9 +290,16 @@ public sealed class CommUsbDevice : UsbDevice
     /// </summary>
     public override void Dispose()
     {
+        if (_disposed) return;
         _disposed = true;
+        // Cancel the pending overlapped read first so a message loop blocked in
+        // Read() returns immediately, then release the session.
+        // <para>先取消挂起的重叠读取，使阻塞在 Read() 中的消息循环立即返回，
+        // 再释放会话。</para>
+        _readCts.Cancel();
         _session?.Dispose();
         _session = null;
+        _readCts.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -365,16 +351,11 @@ public sealed class CommUsbDevice : UsbDevice
 
     private UsbApiKind ResolveApiKind()
     {
-        if (_forceLibUsb)
-        {
-            return UsbApiKind.LibUsbDotNet;
-        }
-
-        if (_deviceInfo.SourceApiKind == UsbApiKind.LibUsbDotNet)
-        {
-            return UsbApiKind.LibUsbDotNet;
-        }
-
-        return UsbApiKind.Native;
+        // The user explicitly chooses the backend: libusb only when requested,
+        // otherwise the platform native backend. No implicit fallback based on the
+        // source device metadata — a mismatch surfaces as an error to the caller.
+        // <para>后端完全由用户显式选择：仅当请求 libusb 时使用 libusb，否则使用平台
+        // 原生后端。不基于源设备元数据隐式回退——不匹配会以错误形式呈现给调用方。</para>
+        return _forceLibUsb ? UsbApiKind.LibUsbDotNet : UsbApiKind.Native;
     }
 }

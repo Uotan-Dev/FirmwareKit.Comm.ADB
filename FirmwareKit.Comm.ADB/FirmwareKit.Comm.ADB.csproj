@@ -31,7 +31,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="FirmwareKit.Comm" Version="1.1.3" />
+    <PackageReference Include="FirmwareKit.Comm" Version="1.2.0" />
     <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
   </ItemGroup>
 

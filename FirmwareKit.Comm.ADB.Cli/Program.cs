@@ -92,6 +92,14 @@ internal static class Program
         {
             var opts = ((Parsed<object>)result).Value;
             CliParser.ApplyGlobals(opts, globals);
+
+            // The user explicitly chooses the USB backend: libusb only with --libusb,
+            // otherwise the platform native backend. No automatic fallback — if the
+            // chosen backend cannot open the device, the error surfaces to the user.
+            // <para>USB 后端由用户显式选择：仅指定 --libusb 时使用 libusb，否则使用
+            // 平台原生后端。不自动回退——所选后端无法打开设备时错误直接呈现给用户。</para>
+            UsbManager.ForceLibUsb = globals.UseLibUsb || ((opts as Options.GlobalOptions)?.UseLibUsb ?? false);
+
             return Dispatch(opts);
         }
 
@@ -299,6 +307,36 @@ internal static class Program
 
     private static UsbDevice OpenTarget(Options.GlobalOptions opts)
     {
+        // Toolbox integration spawns many CLI processes back-to-back; when the
+        // previous process releases the USB interface, winusb needs a brief moment
+        // before another process can claim it. Retry a few times instead of
+        // failing with "device not found" / "no devices" on transient contention.
+        Exception? lastError = null;
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                UsbDevice? result = TryOpenTarget(opts, out lastError);
+                if (result is not null) return result;
+                if (lastError is not null) return null!;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+            }
+            Thread.Sleep(200 * (attempt + 1));
+        }
+
+        if (lastError is not null)
+        {
+            Console.Error.WriteLine($"error: {lastError.Message}");
+        }
+        return null!;
+    }
+
+    private static UsbDevice? TryOpenTarget(Options.GlobalOptions opts, out Exception? openError)
+    {
+        openError = null;
         var devices = UsbManager.GetAllDevices();
         try
         {
@@ -311,7 +349,7 @@ internal static class Program
                 if (match is null)
                 {
                     Console.Error.WriteLine($"error: device '{opts.Serial}' not found");
-                    return null!;
+                    return null;
                 }
             }
             else if (devices.Count == 1)
@@ -321,7 +359,7 @@ internal static class Program
             else if (devices.Count == 0)
             {
                 Console.Error.WriteLine("error: no devices/emulators found");
-                return null!;
+                return null;
             }
             else
             {
@@ -331,10 +369,9 @@ internal static class Program
                     Console.Error.WriteLine($"  {d.SerialNumber}    device");
                 }
 
-                return null!;
+                return null;
             }
 
-            // Remove non-matching devices from the list so they get disposed.
             foreach (var d in devices)
             {
                 if (!ReferenceEquals(d, match))
@@ -345,14 +382,14 @@ internal static class Program
 
             return match;
         }
-        catch
+        catch (Exception ex)
         {
+            openError = ex;
             foreach (var d in devices)
             {
                 d.Dispose();
             }
-
-            throw;
+            return null;
         }
     }
 
@@ -609,14 +646,21 @@ internal static class Program
             if (connection is null) return 1;
             using var sync = new AdbSyncClient(connection);
 
+            // When the destination ends with '/', adb treats it as a directory and
+            // appends the source basename (matching Google adb push behavior).
+            string remote = opts.Remote;
+            if (remote.EndsWith('/') || remote.EndsWith('\\'))
+            {
+                remote = remote + Path.GetFileName(opts.Local);
+            }
+
             long bytes = new FileInfo(opts.Local).Length;
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            sync.Push(opts.Local, opts.Remote);
+            sync.Push(opts.Local, remote);
             sw.Stop();
 
             // Official adb format:
             //   <file>: 1 file pushed, 0 skipped. 9.4 MB/s (8832 bytes in 0.001s)
-            // <para>官方 adb 格式：<file>: 1 file pushed, 0 skipped. 9.4 MB/s (8832 bytes in 0.001s)</para>
             Console.WriteLine($"{opts.Local}: 1 file pushed, 0 skipped. {FormatRate(bytes, sw.Elapsed.TotalSeconds)} ({bytes} bytes in {sw.Elapsed.TotalSeconds:F3}s)");
             return 0;
         }
@@ -1425,7 +1469,27 @@ internal static class Program
         writer.WriteLine($"Android Debug Bridge version {ProtocolVersionString}");
         writer.WriteLine($"Version {VersionString}");
         writer.WriteLine($"Installed as {Environment.ProcessPath ?? "adb"}");
-        writer.WriteLine($"Running on {Environment.OSVersion.VersionString}");
+        writer.WriteLine($"Running on {FormatOsVersion()}");
+    }
+
+    /// <summary>
+    /// Formats the OS version the way Google adb does ("Windows 10.0.26200"
+    /// instead of "Microsoft Windows NT 10.0.26200.0").
+    /// <para>按 Google adb 的方式格式化系统版本（"Windows 10.0.26200"，
+    /// 而非 "Microsoft Windows NT 10.0.26200.0"）。</para>
+    /// </summary>
+    private static string FormatOsVersion()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            // Environment.OSVersion.Version gives major.minor.build.revision; adb
+            // shows major.minor.build without the revision suffix.
+            Version v = Environment.OSVersion.Version;
+            return $"Windows {v.Major}.{v.Minor}.{v.Build}";
+        }
+        if (OperatingSystem.IsMacOS()) return $"macOS {Environment.OSVersion.VersionString}";
+        if (OperatingSystem.IsLinux()) return $"Linux {Environment.OSVersion.VersionString}";
+        return Environment.OSVersion.VersionString;
     }
 
     /// <summary>

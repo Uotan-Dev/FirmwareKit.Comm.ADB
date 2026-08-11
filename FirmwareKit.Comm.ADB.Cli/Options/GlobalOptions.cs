@@ -29,6 +29,9 @@ public class GlobalOptions
     [Option("debug", HelpText = "Verbose debug logging output.")]
     public bool Debug { get; set; }
 
+    [Option("libusb", HelpText = "Force the libusb-dotnet USB backend instead of the platform native backend.")]
+    public bool UseLibUsb { get; set; }
+
     /// <summary>Set by the global parser for <c>-d</c> (force USB transport). -d 时由全局解析器设置。</summary>
     public bool UseUsb { get; set; }
 
