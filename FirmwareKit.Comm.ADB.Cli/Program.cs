@@ -395,8 +395,13 @@ internal static class Program
 
     private static AdbConnection Connect(UsbDevice device)
     {
-        using var auth = LoadTrustedAuthentication();
-        var connection = new AdbConnection(device, auth);
+        // AdbConnection owns the authentication list and disposes every key in
+        // Dispose(); do NOT use `using` here (List<AdbAuthentication> is not
+        // IDisposable, and disposing twice would release the RSA identities).
+        // <para>AdbConnection 拥有认证列表并在 Dispose() 中释放每个密钥；此处勿用
+        // `using`（List<AdbAuthentication> 非 IDisposable，且重复释放会销毁 RSA 身份）。</para>
+        var auths = LoadTrustedAuthentications();
+        var connection = new AdbConnection(device, auths);
         connection.Connect();
 
         // Event-driven wait for the CNXN banner (auth may need a few round trips).
@@ -410,14 +415,22 @@ internal static class Program
     }
 
     /// <summary>
-    /// Loads the user's trusted ADB key (~/.android/adbkey) so that
-    /// ro.adb.secure devices accept us, mirroring the official adb client.
-    /// Falls back to a freshly generated key when none is stored.
-    /// <para>加载用户受信任的 ADB 密钥（~/.android/adbkey），使 ro.adb.secure
-    /// 设备接受我们，与官方 adb 客户端行为一致。无存储密钥时回退为新建密钥。</para>
+    /// Loads the user's trusted ADB keys so that ro.adb.secure devices accept us,
+    /// mirroring the official adb client: the primary key (~/.android/adbkey) plus
+    /// every key listed in $ADB_VENDOR_KEYS (colon-separated files or directories,
+    /// AOSP get_vendor_keys()). Falls back to a freshly generated key when none is
+    /// stored.
+    /// <para>加载用户受信任的 ADB 密钥，使 ro.adb.secure 设备接受我们，与官方 adb
+    /// 客户端行为一致：主密钥（~/.android/adbkey）加 $ADB_VENDOR_KEYS 列出的每个
+    /// 密钥（冒号分隔的文件或目录，AOSP get_vendor_keys()）。无存储密钥时回退为
+    /// 新建密钥。</para>
     /// </summary>
-    private static AdbAuthentication LoadTrustedAuthentication()
+    private static List<AdbAuthentication> LoadTrustedAuthentications()
     {
+        var result = new List<AdbAuthentication>();
+
+        // Primary key: ~/.android/adbkey (AOSP get_user_key_path()).
+        // <para>主密钥：~/.android/adbkey（AOSP get_user_key_path()）。</para>
         string keyPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".android", "adbkey");
         if (File.Exists(keyPath))
@@ -429,15 +442,71 @@ internal static class Program
                 // AdbAuthentication owns the RSA instance (it disposes it),
                 // so it must NOT be disposed here.
                 // <para>AdbAuthentication 拥有 RSA 实例（由其负责释放），此处不得释放。</para>
-                return new AdbAuthentication(rsa);
+                result.Add(new AdbAuthentication(rsa));
             }
             catch
             {
                 // Stored key is unreadable; fall back to a fresh identity.
+                // <para>存储密钥不可读；回退为新建身份。</para>
             }
         }
 
-        return AdbAuthentication.CreateNew();
+        // Vendor keys: $ADB_VENDOR_KEYS (colon-separated files or directories,
+        // AOSP get_vendor_keys()).
+        // <para>厂商密钥：$ADB_VENDOR_KEYS（冒号分隔的文件或目录，AOSP
+        // get_vendor_keys()）。</para>
+        string? vendorKeys = Environment.GetEnvironmentVariable("ADB_VENDOR_KEYS");
+        if (!string.IsNullOrWhiteSpace(vendorKeys))
+        {
+            foreach (string entry in vendorKeys.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string trimmed = entry.Trim();
+                if (trimmed.Length == 0) continue;
+
+                foreach (string file in EnumerateKeyFiles(trimmed))
+                {
+                    try
+                    {
+                        RSA rsa = RSA.Create();
+                        rsa.ImportFromPem(File.ReadAllText(file));
+                        result.Add(new AdbAuthentication(rsa));
+                    }
+                    catch
+                    {
+                        // Skip unreadable vendor keys (AOSP load_key logs and continues).
+                        // <para>跳过不可读的厂商密钥（AOSP load_key 记录日志并继续）。</para>
+                    }
+                }
+            }
+        }
+
+        // No usable key at all: generate a fresh identity (AOSP load_userkey()).
+        // <para>完全没有可用密钥：生成新身份（AOSP load_userkey()）。</para>
+        if (result.Count == 0)
+        {
+            result.Add(AdbAuthentication.CreateNew());
+        }
+
+        return result;
+    }
+
+    // Enumerates key files from a single $ADB_VENDOR_KEYS entry: a file itself,
+    // or every file under a directory (AOSP load_keys()).
+    // <para>从单个 $ADB_VENDOR_KEYS 条目枚举密钥文件：文件本身，或目录下每个文件
+    // （AOSP load_keys()）。</para>
+    private static IEnumerable<string> EnumerateKeyFiles(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            return Directory.EnumerateFiles(path);
+        }
+
+        if (File.Exists(path))
+        {
+            return new[] { path };
+        }
+
+        return Array.Empty<string>();
     }
 
     /// <summary>
@@ -461,7 +530,13 @@ internal static class Program
         if (ResolveTcpTarget(opts, out string host, out int port))
         {
             var transport = new AdbTcpTransport(host, port, connectTimeoutMs: 5000);
-            var connection = new AdbConnection(transport, LoadTrustedAuthentication());
+            // AdbConnection owns the authentication list and disposes every key in
+        // Dispose(); do NOT use `using` here (List<AdbAuthentication> is not
+        // IDisposable, and disposing twice would release the RSA identities).
+        // <para>AdbConnection 拥有认证列表并在 Dispose() 中释放每个密钥；此处勿用
+        // `using`（List<AdbAuthentication> 非 IDisposable，且重复释放会销毁 RSA 身份）。</para>
+        var auths = LoadTrustedAuthentications();
+            var connection = new AdbConnection(transport, auths);
             connection.Connect();
 
             // Event-driven wait for the CNXN banner (sub-millisecond vs up to 10 s polling).
@@ -1235,7 +1310,13 @@ internal static class Program
         try
         {
             using var transport = new AdbTcpTransport(host, port, connectTimeoutMs: 5000);
-            using var connection = new AdbConnection(transport, LoadTrustedAuthentication());
+            // AdbConnection owns the authentication list and disposes every key in
+        // Dispose(); do NOT use `using` here (List<AdbAuthentication> is not
+        // IDisposable, and disposing twice would release the RSA identities).
+        // <para>AdbConnection 拥有认证列表并在 Dispose() 中释放每个密钥；此处勿用
+        // `using`（List<AdbAuthentication> 非 IDisposable，且重复释放会销毁 RSA 身份）。</para>
+        var auths = LoadTrustedAuthentications();
+            using var connection = new AdbConnection(transport, auths);
             connection.Connect();
 
             if (!connection.WaitForPeer(10000))
