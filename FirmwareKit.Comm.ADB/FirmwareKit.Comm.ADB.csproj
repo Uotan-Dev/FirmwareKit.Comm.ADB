@@ -37,7 +37,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="FirmwareKit.Comm" Version="1.2.0" />
+    <!--
+      Local dev override: reference the locally-fixed FirmwareKit.Comm source so
+      the macOS native (IOKit) backend fixes are exercised by the CLI, instead of
+      the published 1.2.0 package whose IOUSBHost backend is unloadable on current
+      macOS. Restore to a PackageReference for release builds.
+      <para>本地开发覆盖：引用本地修复后的 FirmwareKit.Comm 源码，使 CLI 使用已修复的
+      macOS native（IOKit）后端，而非发布版 1.2.0 包（其 IOUSBHost 后端在当前 macOS
+      上不可加载）。发布构建时恢复为 PackageReference。</para>
+    -->
+    <ProjectReference Include="..\..\firmwarekit.comm\FirmwareKit.Comm\FirmwareKit.Comm.csproj" />
     <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.301" PrivateAssets="All" />
   </ItemGroup>
