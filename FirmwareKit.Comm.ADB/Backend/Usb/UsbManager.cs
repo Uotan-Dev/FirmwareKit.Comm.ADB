@@ -1,4 +1,5 @@
 using FirmwareKit.Comm.Abstractions;
+using FirmwareKit.Comm.Configuration;
 
 namespace FirmwareKit.Comm.ADB.Backend.Usb;
 
@@ -202,7 +203,21 @@ public static class UsbManager
         InterfaceProtocol = AdbInterfaceProtocol,
     };
 
-    private static UsbApiKind ResolveApiKind() => ForceLibUsb ? UsbApiKind.LibUsbDotNet : UsbApiKind.Native;
+    private static UsbApiKind ResolveApiKind()
+    {
+        // Explicit user override (--libusb) wins; otherwise follow the platform
+        // backend configuration (aligned with Google adb's is_libusb_enabled):
+        // macOS defaults to libusb, Windows defaults to native, and the native
+        // backend acts as a fallback / enumeration-only path elsewhere.
+        // <para>用户显式覆盖（--libusb）优先；否则遵循平台后端配置（与谷歌 adb 的
+        // is_libusb_enabled 对齐）：macOS 默认 libusb，Windows 默认原生，其余平台
+        // 原生后端仅作回退/枚举。</para>
+        if (ForceLibUsb)
+        {
+            return UsbApiKind.LibUsbDotNet;
+        }
+        return UsbBackendConfiguration.ForCurrentPlatform.ResolveDefaultBackend();
+    }
 
     private static void AddDevices(
         IReadOnlyList<UsbDeviceInfo> discovered,
