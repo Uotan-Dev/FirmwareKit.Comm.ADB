@@ -27,7 +27,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>adb;android;firmware;debug;usb;shell;sync;mdns</PackageTags>
     <Copyright>Copyright (c) 2026 ZZi_Cai</Copyright>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <PackageId>FirmwareKit.Comm.ADB</PackageId>
     <Product>FirmwareKit.Comm.ADB</Product>
   </PropertyGroup>
@@ -37,7 +37,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="FirmwareKit.Comm" Version="1.2.0" />
+    <PackageReference Include="FirmwareKit.Comm" Version="1.2.1" />
     <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.301" PrivateAssets="All" />
   </ItemGroup>

@@ -172,19 +172,13 @@ internal static class CliParser
     /// <summary>
     /// Rewrites a <c>shell ...</c> argument list so tokens belonging to the remote
     /// command (including leading dashes like <c>uname -r</c>) are treated as
-    /// positional values rather than unknown shell options.
-    /// <para>
-    /// Global transport/target options are allowed after the verb for convenience
-    /// (<c>-H</c>/<c>-P</c>/<c>--host</c>/<c>--port</c>/<c>--serial</c>/<c>--debug</c>)
-    /// and are bound to <see cref="Options.GlobalOptions"/> rather than forwarded to
-    /// the remote shell. They may be freely interspersed with the shell's own options
-    /// before the remote command begins.
-    /// </para>
+    /// positional values rather than unknown shell options. Post-verb global
+    /// options (<c>-H</c>/<c>-P</c>/<c>--serial</c>/<c>--debug</c>) are bound to
+    /// <see cref="Options.GlobalOptions"/> rather than forwarded.
     /// <para>重写 <c>shell ...</c> 参数列表，使属于远端命令的令牌（包括 <c>uname -r</c>
-    /// 这类带前导短横线的参数）被当作位置值而非未知 shell 选项。动词之后允许出现全局
-    /// 传输/目标选项（<c>-H</c>/<c>-P</c>/<c>--host</c>/<c>--port</c>/<c>--serial</c>/
-    /// <c>--debug</c>），由 <see cref="Options.GlobalOptions"/> 绑定，不转发给远端 shell；
-    /// 在远端命令开始前可与 shell 自身选项自由混排。</para>
+    /// 这类带前导短横线的参数）被当作位置值而非未知 shell 选项。动词后的全局选项
+    /// （<c>-H</c>/<c>-P</c>/<c>--serial</c>/<c>--debug</c>）绑定到
+    /// <see cref="Options.GlobalOptions"/> 而非转发。</para>
     /// </summary>
     public static string[] PrepareShellArgs(string[] args)
     {
@@ -258,6 +252,71 @@ internal static class CliParser
     }
 
     /// <summary>
+    /// Rewrites a <c>logcat ...</c> argument list so tokens belonging to the
+    /// device-side logcat (including dash-prefixed options like <c>-d</c>,
+    /// <c>-v threadtime</c>, <c>-t 5</c>) are treated as positional values rather
+    /// than unknown verb options. Only the global options logcat does not define
+    /// (<c>-H</c>/<c>-P</c>/<c>--serial</c>/<c>--debug</c>/<c>--libusb</c>) are
+    /// bound to <see cref="Options.GlobalOptions"/>; <c>-s</c> (silent filter)
+    /// and <c>-t</c> (last N lines) are logcat options and MUST be forwarded.
+    /// <para>重写 <c>logcat ...</c> 参数列表，使属于设备端 logcat 的令牌（包括
+    /// <c>-d</c>、<c>-v threadtime</c>、<c>-t 5</c> 这类带前导短横线的选项）被当作
+    /// 位置值而非未知动词选项。仅保留 logcat 未定义的全局选项
+    /// （<c>-H</c>/<c>-P</c>/<c>--serial</c>/<c>--debug</c>/<c>--libusb</c>）绑定到
+    /// <see cref="Options.GlobalOptions"/>；<c>-s</c>（静默过滤器）与 <c>-t</c>
+    /// （最近 N 行）是 logcat 选项，必须转发。</para>
+    /// </summary>
+    public static string[] PrepareLogcatArgs(string[] args)
+    {
+        var result = new List<string>(args.Length + 1) { args[0] };
+        bool forwarded = false;
+
+        for (int idx = 1; idx < args.Length; idx++)
+        {
+            string arg = args[idx];
+
+            if (!forwarded)
+            {
+                if (arg == "--")
+                {
+                    forwarded = true;
+                    result.Add(arg);
+                    continue;
+                }
+
+                // Post-verb global options (defined on GlobalOptions) that logcat
+                // does not define. They take a value and must not be forwarded.
+                if (arg is "-H" or "--host" or "-P" or "--port" or "--serial")
+                {
+                    result.Add(arg);
+                    if (idx + 1 < args.Length)
+                    {
+                        result.Add(args[++idx]);
+                    }
+
+                    continue;
+                }
+
+                // Boolean global flags (no value).
+                if (arg is "--debug" or "--libusb")
+                {
+                    result.Add(arg);
+                    continue;
+                }
+
+                // Any other token is a device-side logcat argument; insert `--` so
+                // a leading dash (e.g. `-d`) is passed through as a value.
+                result.Add("--");
+                forwarded = true;
+            }
+
+            result.Add(arg);
+        }
+
+        return result.ToArray();
+    }
+
+    /// <summary>
     /// Parses a full command line into a <see cref="ParsedCommand"/>. Returns null
     /// when the arguments request help/version or contain a parse error; the
     /// <paramref name="errorWriter"/> receives the human-readable message in those
@@ -292,9 +351,12 @@ internal static class CliParser
             return null;
         }
 
-        string[] parseArgs = command.Equals("shell", StringComparison.OrdinalIgnoreCase)
-            ? PrepareShellArgs(args[commandIndex..])
-            : args[commandIndex..];
+        string[] parseArgs = command switch
+        {
+            "shell" => PrepareShellArgs(args[commandIndex..]),
+            "logcat" => PrepareLogcatArgs(args[commandIndex..]),
+            _ => args[commandIndex..],
+        };
 
         var parser = new Parser(settings =>
         {

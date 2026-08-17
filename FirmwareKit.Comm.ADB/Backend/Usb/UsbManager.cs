@@ -202,7 +202,18 @@ public static class UsbManager
         InterfaceProtocol = AdbInterfaceProtocol,
     };
 
-    private static UsbApiKind ResolveApiKind() => ForceLibUsb ? UsbApiKind.LibUsbDotNet : UsbApiKind.Native;
+    private static UsbApiKind ResolveApiKind()
+    {
+        // Explicit --libusb wins; otherwise the platform default backend
+        // (macOS/Linux → libusb, Windows → native) applies, see UsbBackendSelection.
+        // <para>显式 --libusb 优先；否则应用平台默认后端（macOS/Linux → libusb、
+        // Windows → 原生），见 UsbBackendSelection。</para>
+        if (ForceLibUsb)
+        {
+            return UsbApiKind.LibUsbDotNet;
+        }
+        return UsbBackendSelection.ResolveDefault();
+    }
 
     private static void AddDevices(
         IReadOnlyList<UsbDeviceInfo> discovered,

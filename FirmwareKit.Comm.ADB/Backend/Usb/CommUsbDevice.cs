@@ -351,11 +351,14 @@ public sealed class CommUsbDevice : UsbDevice
 
     private UsbApiKind ResolveApiKind()
     {
-        // The user explicitly chooses the backend: libusb only when requested,
-        // otherwise the platform native backend. No implicit fallback based on the
-        // source device metadata — a mismatch surfaces as an error to the caller.
-        // <para>后端完全由用户显式选择：仅当请求 libusb 时使用 libusb，否则使用平台
-        // 原生后端。不基于源设备元数据隐式回退——不匹配会以错误形式呈现给调用方。</para>
-        return _forceLibUsb ? UsbApiKind.LibUsbDotNet : UsbApiKind.Native;
+        // Explicit --libusb wins; otherwise the platform default backend
+        // (macOS/Linux → libusb, Windows → native) applies, see UsbBackendSelection.
+        // <para>显式 --libusb 优先；否则应用平台默认后端（macOS/Linux → libusb、
+        // Windows → 原生），见 UsbBackendSelection。</para>
+        if (_forceLibUsb)
+        {
+            return UsbApiKind.LibUsbDotNet;
+        }
+        return UsbBackendSelection.ResolveDefault();
     }
 }

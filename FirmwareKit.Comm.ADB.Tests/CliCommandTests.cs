@@ -442,7 +442,7 @@ public class CliCommandTests
     [InlineData(Target.Usb)]
     [InlineData(Target.Emulator)]
     public Task Logcat_Dump(Target target) => Check(target,
-        r => Assert.Equal(0, r.ExitCode), "logcat", "--", "-d", "-t", "5");
+        r => Assert.Equal(0, r.ExitCode), "logcat", "-d", "-t", "5");
 
     [Theory]
     [InlineData(Target.Usb)]

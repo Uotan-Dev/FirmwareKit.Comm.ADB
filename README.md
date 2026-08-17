@@ -45,7 +45,8 @@ capabilities:
 
 - Direct, self-contained transports: USB (direct port scan + interface takeover + raw bulk I/O), TCP (native `TcpClient`), UDP (native `UdpClient` mDNS discovery). No external `adb` binary, no `host:5037` server, no proxy process.
 - Full ADB wire protocol: `CNXN` / `AUTH` / `OPEN` / `OKAY` / `WRTE` / `CLSE` / `SYNC`.
-- RSA-SHA1 authentication with ADB-format public keys (2048-bit); reuses the user's `~/.android/adbkey` when present.
+- RSA-SHA1 authentication with ADB-format public keys (2048-bit); reuses the user's `~/.android/adbkey` and every key in `$ADB_VENDOR_KEYS` (AOSP `get_vendor_keys()`), falling back to a freshly generated key.
+- Multi-key rotation on AUTH token challenges (AOSP `NextKey()` semantics): each token is answered with the next key's signature before advertising the public key.
 - Stream multiplexing (`AdbStream`) over a single transport.
 - Shell v2 protocol (`shell,v2`): stdout / stderr / exit code streaming, PTY and TERM support.
 - Sync protocol (`sync:`): push / pull / stat / list (v1 wire format, which `adbd` accepts even when `sendrecv_v2` is negotiated).
@@ -62,17 +63,26 @@ capabilities:
 
 ## USB backend selection
 
-The library uses the **platform native backend by default** (WinUSB on Windows,
-usbfs on Linux, IOKit on macOS). The libusb-dotnet backend is available as an
-explicit opt-in — there is no automatic fallback:
+The backend is selected per platform, aligned with Google adb's
+`is_libusb_enabled` semantics: **macOS and other non-Windows platforms default
+to libusb, Windows defaults to the native backend** (WinUSB on Windows, IOKit
+on macOS, usbfs on Linux). The native backend acts as a fallback / enumeration
+path elsewhere.
 
-- Library: set `UsbManager.ForceLibUsb = true` to force libusb.
-- CLI: pass `--libusb` to use the libusb backend; without it, the native backend
-  is used.
+- Library: set `UsbManager.ForceLibUsb = true` to force libusb explicitly.
+- CLI: pass `--libusb` to force libusb; without it, the platform default
+  applies.
+- Environment overrides (official adb semantics):
+  - `ADB_LIBUSB=1` → libusb first, native fallback; `ADB_LIBUSB=0` → native only
+  - `FIRMWAREKIT_USB_BACKEND=native|libusb|auto` → project-specific selector
 
-<para>库默认使用平台原生后端（Windows 用 WinUSB、Linux 用 usbfs、macOS 用
-IOKit）。libusb-dotnet 后端作为显式选项保留，不自动回退：库侧设置
-<see cref="UsbManager.ForceLibUsb"/> 为 true，CLI 侧传 <c>--libusb</c>。</para>
+<para>后端按平台选择，与谷歌 adb 的 <c>is_libusb_enabled</c> 语义对齐：
+macOS 及其他非 Windows 平台默认 libusb，Windows 默认原生后端（Windows 用
+WinUSB、macOS 用 IOKit、Linux 用 usbfs）。原生后端在其余平台仅作回退/枚举。
+库侧可设 <see cref="UsbManager.ForceLibUsb"/> 为 true 强制 libusb；CLI 侧传
+<c>--libusb</c> 强制，否则应用平台默认。环境变量覆盖遵循官方 adb 语义：
+<c>ADB_LIBUSB=1</c> 优先 libusb（原生回退）、<c>ADB_LIBUSB=0</c> 仅原生；
+<c>FIRMWAREKIT_USB_BACKEND=native|libusb|auto</c> 为项目专属选择器。</para>
 
 ## Quick Start
 
@@ -86,9 +96,10 @@ using FirmwareKit.Comm.ADB.Services;
 var devices = UsbManager.GetAllDevices();
 UsbDevice device = devices[0];
 
-// 2. Connect and authenticate.
-using var auth = AdbAuthentication.CreateNew();
-using var connection = new AdbConnection(device, auth);
+// 2. Connect and authenticate. AdbConnection owns the authentication list and
+//    disposes every key in Dispose(); do not wrap it in `using` here.
+var auth = AdbAuthentication.CreateNew();
+var connection = new AdbConnection(device, auth);
 connection.Connect();
 
 // 3. Run a shell command.
@@ -100,11 +111,12 @@ Console.WriteLine(System.Text.Encoding.UTF8.GetString(result.Stdout));
 ## CLI
 
 ```
-adb devices          # list attached devices (native USB backend by default)
-adb --libusb devices # list devices using the libusb backend instead
+adb devices          # list attached devices (platform default backend)
+adb --libusb devices # list devices forcing the libusb backend
 adb shell <cmd>      # run a remote command
 adb push <l> <r>     # push a file
 adb pull <r> [l]     # pull a file
+adb logcat -d -t 5   # dump device logcat (arguments passed through)
 adb reboot           # reboot the device
 adb mdns services    # discover ADB devices on the LAN (native UDP mDNS)
 adb version          # show version

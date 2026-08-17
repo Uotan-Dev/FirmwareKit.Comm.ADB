@@ -13,7 +13,7 @@ namespace FirmwareKit.Comm.ADB.Cli;
 
 internal static class Program
 {
-    private const string VersionString = "1.0.0";
+    private const string VersionString = "1.1.0";
 
     // Protocol version advertised by the client library (A_VERSION, see AdbProtocol).
     // Shown on the version banner like the official adb does.
@@ -70,10 +70,14 @@ internal static class Program
         // <para>官方 adb 中 `shell` 之后除自身选项（-e/-n/-T/-t/-x/--term）外
         // 全部是远端命令，因此 `adb shell uname -r` 应把 `-r` 传给设备而非报未知
         // 选项。在命令起始处插入 `--` 分隔符，使 CommandLineParser 将其后内容
-        // 作为位置值。</para>
-        string[] parseArgs = command.Equals("shell", StringComparison.OrdinalIgnoreCase)
-            ? CliParser.PrepareShellArgs(args[commandIndex..])
-            : args[commandIndex..];
+        // 作为位置值。logcat 同理：`adb logcat -d -t 5` 的 `-d`/`-t` 属于设备端
+        // logcat，需透传而非当作未知动词选项。</para>
+        string[] parseArgs = command switch
+        {
+            "shell" => CliParser.PrepareShellArgs(args[commandIndex..]),
+            "logcat" => CliParser.PrepareLogcatArgs(args[commandIndex..]),
+            _ => args[commandIndex..],
+        };
 
         var parser = new Parser(settings =>
         {
@@ -184,68 +188,6 @@ internal static class Program
 
     private static string FormatOption(string token)
         => token.StartsWith('-') ? token : "-" + token;
-
-    /// <summary>
-    /// Rewrites a `shell ...` argument list for CommandLineParser so tokens belonging
-    /// to the remote command (including leading dashes like `uname -r`) are treated as
-    /// positional values rather than unknown shell options. The shell's own options
-    /// (-e/-n/-T/-t/-x/--term) may appear before the command; once the command starts
-    /// (or after an explicit `--`), every remaining token is passed through.
-    /// <para>重写 `shell ...` 参数列表，使属于远端命令的令牌（包括 `uname -r`
-    /// 这类带前导短横线的参数）被当作位置值而非未知 shell 选项。shell 自身选项
-    /// （-e/-n/-T/-t/-x/--term）可出现在命令之前；一旦命令开始（或遇到显式 `--`），
-    /// 其后所有令牌均原样透传。</para>
-    /// </summary>
-    private static string[] PrepareShellArgs(string[] args)
-    {
-        var result = new List<string>(args.Length + 1) { args[0] };
-        bool commandStarted = false;
-
-        for (int idx = 1; idx < args.Length; idx++)
-        {
-            string arg = args[idx];
-
-            if (!commandStarted)
-            {
-                if (arg == "--")
-                {
-                    commandStarted = true;
-                    result.Add(arg);
-                    continue;
-                }
-
-                // Shell's own boolean flags.
-                if (arg is "-t" or "-T" or "-n" or "-x")
-                {
-                    result.Add(arg);
-                    continue;
-                }
-
-                // Shell options that consume a value: -e ESCAPE, --term TERM.
-                if (arg is "-e" or "--term" ||
-                    arg.StartsWith("--term=", StringComparison.Ordinal) ||
-                    arg.StartsWith("-e=", StringComparison.Ordinal))
-                {
-                    result.Add(arg);
-                    if (arg is "-e" or "--term" && idx + 1 < args.Length)
-                    {
-                        result.Add(args[++idx]);
-                    }
-
-                    continue;
-                }
-
-                // Any other token starts the remote command; insert `--` so a leading
-                // dash (e.g. `-r`) is passed through as a value.
-                result.Add("--");
-                commandStarted = true;
-            }
-
-            result.Add(arg);
-        }
-
-        return result.ToArray();
-    }
 
     // ---- devices ------------------------------------------------------------
 
@@ -395,8 +337,8 @@ internal static class Program
 
     private static AdbConnection Connect(UsbDevice device)
     {
-        using var auth = LoadTrustedAuthentication();
-        var connection = new AdbConnection(device, auth);
+        var auths = LoadTrustedAuthentications();
+        var connection = new AdbConnection(device, auths);
         connection.Connect();
 
         // Event-driven wait for the CNXN banner (auth may need a few round trips).
@@ -410,14 +352,22 @@ internal static class Program
     }
 
     /// <summary>
-    /// Loads the user's trusted ADB key (~/.android/adbkey) so that
-    /// ro.adb.secure devices accept us, mirroring the official adb client.
-    /// Falls back to a freshly generated key when none is stored.
-    /// <para>加载用户受信任的 ADB 密钥（~/.android/adbkey），使 ro.adb.secure
-    /// 设备接受我们，与官方 adb 客户端行为一致。无存储密钥时回退为新建密钥。</para>
+    /// Loads the user's trusted ADB keys so that ro.adb.secure devices accept us,
+    /// mirroring the official adb client: the primary key (~/.android/adbkey) plus
+    /// every key listed in $ADB_VENDOR_KEYS (colon-separated files or directories,
+    /// AOSP get_vendor_keys()). Falls back to a freshly generated key when none is
+    /// stored.
+    /// <para>加载用户受信任的 ADB 密钥，使 ro.adb.secure 设备接受我们，与官方 adb
+    /// 客户端行为一致：主密钥（~/.android/adbkey）加 $ADB_VENDOR_KEYS 列出的每个
+    /// 密钥（冒号分隔的文件或目录，AOSP get_vendor_keys()）。无存储密钥时回退为
+    /// 新建密钥。</para>
     /// </summary>
-    private static AdbAuthentication LoadTrustedAuthentication()
+    private static List<AdbAuthentication> LoadTrustedAuthentications()
     {
+        var result = new List<AdbAuthentication>();
+
+        // Primary key: ~/.android/adbkey (AOSP get_user_key_path()).
+        // <para>主密钥：~/.android/adbkey（AOSP get_user_key_path()）。</para>
         string keyPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".android", "adbkey");
         if (File.Exists(keyPath))
@@ -429,15 +379,71 @@ internal static class Program
                 // AdbAuthentication owns the RSA instance (it disposes it),
                 // so it must NOT be disposed here.
                 // <para>AdbAuthentication 拥有 RSA 实例（由其负责释放），此处不得释放。</para>
-                return new AdbAuthentication(rsa);
+                result.Add(new AdbAuthentication(rsa));
             }
             catch
             {
                 // Stored key is unreadable; fall back to a fresh identity.
+                // <para>存储密钥不可读；回退为新建身份。</para>
             }
         }
 
-        return AdbAuthentication.CreateNew();
+        // Vendor keys: $ADB_VENDOR_KEYS (colon-separated files or directories,
+        // AOSP get_vendor_keys()).
+        // <para>厂商密钥：$ADB_VENDOR_KEYS（冒号分隔的文件或目录，AOSP
+        // get_vendor_keys()）。</para>
+        string? vendorKeys = Environment.GetEnvironmentVariable("ADB_VENDOR_KEYS");
+        if (!string.IsNullOrWhiteSpace(vendorKeys))
+        {
+            foreach (string entry in vendorKeys.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string trimmed = entry.Trim();
+                if (trimmed.Length == 0) continue;
+
+                foreach (string file in EnumerateKeyFiles(trimmed))
+                {
+                    try
+                    {
+                        RSA rsa = RSA.Create();
+                        rsa.ImportFromPem(File.ReadAllText(file));
+                        result.Add(new AdbAuthentication(rsa));
+                    }
+                    catch
+                    {
+                        // Skip unreadable vendor keys (AOSP load_key logs and continues).
+                        // <para>跳过不可读的厂商密钥（AOSP load_key 记录日志并继续）。</para>
+                    }
+                }
+            }
+        }
+
+        // No usable key at all: generate a fresh identity (AOSP load_userkey()).
+        // <para>完全没有可用密钥：生成新身份（AOSP load_userkey()）。</para>
+        if (result.Count == 0)
+        {
+            result.Add(AdbAuthentication.CreateNew());
+        }
+
+        return result;
+    }
+
+    // Enumerates key files from a single $ADB_VENDOR_KEYS entry: a file itself,
+    // or every file under a directory (AOSP load_keys()).
+    // <para>从单个 $ADB_VENDOR_KEYS 条目枚举密钥文件：文件本身，或目录下每个文件
+    // （AOSP load_keys()）。</para>
+    private static IEnumerable<string> EnumerateKeyFiles(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            return Directory.EnumerateFiles(path);
+        }
+
+        if (File.Exists(path))
+        {
+            return new[] { path };
+        }
+
+        return Array.Empty<string>();
     }
 
     /// <summary>
@@ -461,7 +467,8 @@ internal static class Program
         if (ResolveTcpTarget(opts, out string host, out int port))
         {
             var transport = new AdbTcpTransport(host, port, connectTimeoutMs: 5000);
-            var connection = new AdbConnection(transport, LoadTrustedAuthentication());
+            var auths = LoadTrustedAuthentications();
+            var connection = new AdbConnection(transport, auths);
             connection.Connect();
 
             // Event-driven wait for the CNXN banner (sub-millisecond vs up to 10 s polling).
@@ -1235,7 +1242,8 @@ internal static class Program
         try
         {
             using var transport = new AdbTcpTransport(host, port, connectTimeoutMs: 5000);
-            using var connection = new AdbConnection(transport, LoadTrustedAuthentication());
+            var auths = LoadTrustedAuthentications();
+            using var connection = new AdbConnection(transport, auths);
             connection.Connect();
 
             if (!connection.WaitForPeer(10000))

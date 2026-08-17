@@ -10,7 +10,12 @@ namespace FirmwareKit.Comm.ADB;
 public sealed class AdbConnection : IDisposable
 {
     private readonly IAdbTransport _transport;
-    private readonly AdbAuthentication _authentication;
+    // Ordered auth identities; AUTH tokens are answered with each key in turn
+    // (AOSP NextKey semantics, see the constructor docs and HandleAuth).
+    // <para>有序认证身份列表；AUTH 令牌依次用每个密钥应答（AOSP NextKey 语义，
+    // 见构造函数文档与 HandleAuth）。</para>
+    private readonly IReadOnlyList<AdbAuthentication> _authentications;
+    private int _authKeyIndex;
     private readonly Dictionary<uint, AdbStream> _streams = new();
     private readonly object _lock = new();
     // Dedicated write lock: Send() is invoked both from the message-loop thread
@@ -29,14 +34,6 @@ public sealed class AdbConnection : IDisposable
     private uint _nextLocalId = 1;
     private bool _connected;
     private bool _disposed;
-
-    // AOSP adb_auth_host.cpp handle_auth(): the FIRST token is answered with a
-    // signature; if the device rejects it (key not trusted, ro.adb.secure=1) it sends
-    // another token, and the client must then advertise its public key so the user can
-    // authorize it. Without this fallback the handshake loops signing forever.
-    // <para>AOSP handle_auth()：首个令牌以签名应答；设备拒绝时再发令牌，客户端须改发
-    // 公钥供用户授权。缺少该回退会导致握手无限循环签名。</para>
-    private bool _authSignatureSent;
 
     /// <summary>Gets a value indicating whether the connection is established and authenticated.
     /// <para>获取连接是否已建立并通过认证。</para></summary>
@@ -65,9 +62,32 @@ public sealed class AdbConnection : IDisposable
     /// <param name="transport">The transport to communicate over. 通信传输层。</param>
     /// <param name="authentication">The RSA authentication identity. RSA 认证身份。</param>
     public AdbConnection(IAdbTransport transport, AdbAuthentication authentication)
+        : this(transport, authentication is null ? Array.Empty<AdbAuthentication>() : new[] { authentication })
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new ADB connection over the given transport with an ordered
+    /// list of authentication identities. On AUTH token challenges each identity is
+    /// tried in order (AOSP adb_auth_host.cpp NextKey semantics); when the list is
+    /// exhausted the client advertises its public key. The connection OWNS the list
+    /// and disposes every identity in <see cref="Dispose"/>; callers must not
+    /// dispose the identities themselves.
+    /// <para>使用给定的传输层与有序认证身份列表初始化新的 ADB 连接。AUTH 令牌挑战时
+    /// 按顺序尝试每个身份（AOSP adb_auth_host.cpp NextKey 语义）；列表耗尽后客户端
+    /// 宣告其公钥。连接拥有该列表并在 <see cref="Dispose"/> 中释放每个身份；
+    /// 调用方不得自行释放这些身份。</para>
+    /// </summary>
+    /// <param name="transport">The transport to communicate over. 通信传输层。</param>
+    /// <param name="authentications">The ordered RSA authentication identities. 有序 RSA 认证身份列表。</param>
+    public AdbConnection(IAdbTransport transport, IReadOnlyList<AdbAuthentication> authentications)
     {
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
-        _authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
+        _authentications = authentications ?? throw new ArgumentNullException(nameof(authentications));
+        if (_authentications.Count == 0)
+        {
+            throw new ArgumentException("At least one authentication identity is required.", nameof(authentications));
+        }
     }
 
     /// <summary>
@@ -85,7 +105,7 @@ public sealed class AdbConnection : IDisposable
 
         Send(AdbMessaging.BuildConnect());
         _connected = true;
-        _authSignatureSent = false;
+        _authKeyIndex = 0;
 
         Thread loop = new(MessageLoop) { IsBackground = true, Name = "ADB message loop" };
         loop.Start();
@@ -204,22 +224,27 @@ public sealed class AdbConnection : IDisposable
         switch ((AdbAuthType)message.Arg0)
         {
             case AdbAuthType.Token:
-                if (!_authSignatureSent)
+                // AOSP send_auth_response(): answer EACH token with the NEXT key's
+                // signature; when the key queue is exhausted, advertise the public key
+                // so the user can authorize it on the device.
+                // <para>AOSP send_auth_response()：对每个令牌以**下一个**密钥的签名
+                // 应答；密钥队列耗尽后宣告公钥，供用户在设备上授权。</para>
+                byte[] token = message.Payload ?? Array.Empty<byte>();
+                if (_authKeyIndex < _authentications.Count)
                 {
-                    byte[] token = message.Payload ?? Array.Empty<byte>();
-                    byte[] signature = _authentication.SignToken(token);
-                    _authSignatureSent = true;
+                    byte[] signature = _authentications[_authKeyIndex].SignToken(token);
+                    _authKeyIndex++;
                     Send(AdbMessaging.BuildAuth(AdbAuthType.Signature, signature));
                 }
                 else
                 {
-                    byte[] publicKey = _authentication.BuildPublicKeyPayload();
+                    byte[] publicKey = _authentications[0].BuildPublicKeyPayload();
                     Send(AdbMessaging.BuildAuth(AdbAuthType.RSAPublicKey, publicKey));
                 }
                 break;
 
             case AdbAuthType.RSAPublicKey:
-                byte[] explicitPublicKey = _authentication.BuildPublicKeyPayload();
+                byte[] explicitPublicKey = _authentications[0].BuildPublicKeyPayload();
                 Send(AdbMessaging.BuildAuth(AdbAuthType.RSAPublicKey, explicitPublicKey));
                 break;
 
@@ -342,7 +367,10 @@ public sealed class AdbConnection : IDisposable
         }
 
         _transport.Dispose();
-        _authentication.Dispose();
+        foreach (AdbAuthentication auth in _authentications)
+        {
+            auth.Dispose();
+        }
         _peerReady.Dispose();
         GC.SuppressFinalize(this);
     }

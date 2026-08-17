@@ -403,13 +403,56 @@ public class CliParserLogTests
     [Fact]
     public void Parse_Logcat_WithArgs()
     {
-        // logcat's dash-prefixed args need a `--` separator (same as the shell verb)
-        // so CommandLineParser treats them as positional values, not options.
+        // logcat's dash-prefixed args are forwarded to the device-side logcat
+        // without a `--` separator (PrepareLogcatArgs inserts it internally).
+        // <para>logcat 的短横线参数无需 `--` 分隔即可透传给设备端 logcat
+        // （PrepareLogcatArgs 内部插入）。</para>
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("logcat -d -t 5"));
+
+        Assert.NotNull(parsed);
+        var logcat = Assert.IsType<LogcatVerb>(parsed!.VerbOptions);
+        Assert.Equal(["-d", "-t", "5"], logcat.Args);
+    }
+
+    [Fact]
+    public void Parse_Logcat_DashDashStillAccepted()
+    {
+        // Explicit `--` continues to work for callers that already use it.
+        // <para>显式 `--` 对既有调用方仍然有效。</para>
         ParsedCommand? parsed = CliParser.Parse(Tokenize("logcat -- -d -t 5"));
 
         Assert.NotNull(parsed);
         var logcat = Assert.IsType<LogcatVerb>(parsed!.VerbOptions);
         Assert.Equal(["-d", "-t", "5"], logcat.Args);
+    }
+
+    [Fact]
+    public void Parse_Logcat_SilentFilterAndTailAreForwarded()
+    {
+        // -s (silent filter) and -t (last N lines) are logcat options and MUST be
+        // forwarded, not consumed as global -s serial / transport selectors.
+        // <para>-s（静默过滤器）与 -t（最近 N 行）是 logcat 选项，必须转发，
+        // 不得作为全局 -s 序列号 / 传输选择器消费。</para>
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("logcat -s TAG:* -t 20"));
+
+        Assert.NotNull(parsed);
+        var logcat = Assert.IsType<LogcatVerb>(parsed!.VerbOptions);
+        Assert.Equal(["-s", "TAG:*", "-t", "20"], logcat.Args);
+    }
+
+    [Fact]
+    public void Parse_Logcat_GlobalOptionsStillBound()
+    {
+        // Post-verb global transport options remain bound to GlobalOptions.
+        // <para>动词后的全局传输选项仍绑定到 GlobalOptions。</para>
+        ParsedCommand? parsed = CliParser.Parse(Tokenize("logcat -H 10.0.0.5 -P 5555 --debug -d"));
+
+        Assert.NotNull(parsed);
+        var logcat = Assert.IsType<LogcatVerb>(parsed!.VerbOptions);
+        Assert.Equal("10.0.0.5", logcat.Host);
+        Assert.Equal(5555, logcat.Port);
+        Assert.True(logcat.Debug);
+        Assert.Equal(["-d"], logcat.Args);
     }
 
     [Fact]
